@@ -1,3 +1,14 @@
+/**
+ * CRM Dashboard Page
+ *
+ * Renders the home screen of the CRM dashboard, including the
+ * AI-generated morning brief summary, key KPIs, and quick dispatches shortcuts.
+ *
+ * Responsibilities:
+ * - Load daily bulletins and marketing aggregate metrics.
+ * - Render navigation triggers to segments and campaigns wizards.
+ */
+
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -7,22 +18,29 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, Users, MessageSquare, PlusCircle, ArrowUpRight } from "lucide-react";
 
+/**
+ * Renders the Daily Bulletin and core marketing metrics layout.
+ *
+ * @returns React page element
+ */
 export default function DashboardPage() {
   const [brief, setBrief] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>("");
 
   useEffect(() => {
-    // Set format time client side to avoid hydration mismatch
-    const now = new Date();
-    setCurrentTime(
-      now.toLocaleDateString("en-US", {
-        weekday: "short",
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      }).toUpperCase()
-    );
+    // Set format time client side using deferred task to avoid cascading renders warning
+    const timeTimer = setTimeout(() => {
+      const now = new Date();
+      setCurrentTime(
+        now.toLocaleDateString("en-US", {
+          weekday: "short",
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }).toUpperCase()
+      );
+    }, 0);
 
     async function fetchBrief() {
       try {
@@ -36,7 +54,8 @@ export default function DashboardPage() {
             "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today."
           );
         }
-      } catch (e) {
+      } catch (error) {
+        console.error(error);
         setBrief(
           "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today."
         );
@@ -46,6 +65,8 @@ export default function DashboardPage() {
     }
 
     fetchBrief();
+
+    return () => clearTimeout(timeTimer);
   }, []);
 
   const stats = [
@@ -110,7 +131,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <p className="font-sans text-sm leading-relaxed text-text font-medium border-l-2 border-primary/40 pl-4 py-1 italic">
-              "{brief}"
+              &ldquo;{brief}&rdquo;
             </p>
           )}
         </CardContent>

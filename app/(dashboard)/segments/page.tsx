@@ -1,3 +1,15 @@
+/**
+ * Segments List Page
+ *
+ * Displays all saved segment definitions, target shopper counts,
+ * and parameters. Highlights options to launch campaigns directly.
+ *
+ * Responsibilities:
+ * - Load saved shopper segment rules.
+ * - Render parameter badges representing SQL rules.
+ * - Manage redirection to Campaign Composer with target parameters.
+ */
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -5,10 +17,10 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Users, Layers, PlusCircle, ArrowRight, Filter } from "lucide-react";
+import { Layers, PlusCircle, ArrowRight, Filter } from "lucide-react";
+import { Segment, FilterRule } from "@/types";
 
-// Mock segments matching AGENTS.md seed expectations
-const MOCK_SEGMENTS = [
+const MOCK_SEGMENTS: Segment[] = [
   {
     id: "s1",
     name: "Champions",
@@ -65,8 +77,13 @@ const MOCK_SEGMENTS = [
   },
 ];
 
+/**
+ * Lists current shopper segments and their details.
+ *
+ * @returns React page element
+ */
 export default function SegmentsListPage() {
-  const [segments, setSegments] = useState(MOCK_SEGMENTS);
+  const [segments, setSegments] = useState<Segment[]>(MOCK_SEGMENTS);
 
   useEffect(() => {
     async function fetchSegments() {
@@ -76,14 +93,14 @@ export default function SegmentsListPage() {
           const json = await res.json();
           if (json.data) setSegments(json.data);
         }
-      } catch (e) {
-        console.error("Failed fetching live segments, falling back to mock", e);
+      } catch (error) {
+        console.error("Failed fetching live segments, falling back to mock", error);
       }
     }
     fetchSegments();
   }, []);
 
-  const getRuleSummaryString = (rule: any) => {
+  const getRuleSummaryString = (rule: FilterRule) => {
     const fieldMapping: Record<string, string> = {
       rfm_recency_days: "Recency",
       rfm_frequency: "Frequency",
@@ -157,7 +174,7 @@ export default function SegmentsListPage() {
                   <Filter className="w-3 h-3 text-text-muted" /> Filter Parameters:
                 </span>
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  {segment.filter_rules?.rules?.map((rule: any, i: number) => (
+                  {segment.filter_rules?.rules?.map((rule: FilterRule, i: number) => (
                     <Badge key={i} variant="default" type="recessed" className="font-mono text-[9px] lowercase tracking-normal bg-text/[0.02] border-text/5 px-2">
                       {getRuleSummaryString(rule)}
                     </Badge>

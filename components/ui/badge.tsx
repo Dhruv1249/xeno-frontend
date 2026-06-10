@@ -1,3 +1,14 @@
+/**
+ * Neumorphic Badge Component
+ *
+ * Renders small status tags, metrics, and labels styled
+ * with either recessed (concave) or raised (convex) neumorphic shadows.
+ *
+ * Responsibilities:
+ * - Render inline classification elements.
+ * - Supply spacing and semantic coloring values matching the design system.
+ */
+
 import React from "react";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -5,6 +16,12 @@ interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   type?: "raised" | "recessed";
 }
 
+/**
+ * Small badge tag for categorization and status display.
+ *
+ * @param props Badge configurations including variant and shadow type
+ * @returns React span element
+ */
 export const Badge: React.FC<BadgeProps> = ({
   className = "",
   variant = "default",

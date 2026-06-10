@@ -1,21 +1,32 @@
+/**
+ * Campaign Builder Wizard Page
+ *
+ * Implements the step-by-step Campaign Composer wizard (Template, Audience,
+ * Channel, Compose) featuring the AI Pre-send Advisor and message editor.
+ *
+ * Responsibilities:
+ * - Direct users through templates selection.
+ * - Call recommendation and draft APIs.
+ * - Save and dispatch campaigns.
+ */
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TemplateLibrary, TEMPLATES, CampaignTemplate } from "@/components/campaign/TemplateLibrary";
+import { TemplateLibrary, CampaignTemplate } from "@/components/campaign/TemplateLibrary";
 import { ArrowLeft, Sparkles, AlertCircle, Info, Send, Calendar, ChevronRight, ChevronLeft, Users } from "lucide-react";
+import { AIRecommendation } from "@/types";
+import { MOCK_TARGET_SEGMENTS } from "@/lib/mockData";
 
-// Mock segments for target selection
-const MOCK_TARGET_SEGMENTS = [
-  { id: "s1", name: "Champions", count: 85 },
-  { id: "s2", name: "At-Risk High Spenders", count: 68 },
-  { id: "s3", name: "Lapsed Shoppers (60+ Days)", count: 145 },
-  { id: "s4", name: "New Customers", count: 42 },
-];
-
+/**
+ * Renders the Campaign Creation wizard interface.
+ *
+ * @returns React page element
+ */
 export default function NewCampaignPage() {
   const router = useRouter();
   
@@ -31,7 +42,7 @@ export default function NewCampaignPage() {
   const [selectedTone, setSelectedTone] = useState<"friendly" | "urgent" | "exclusive">("friendly");
 
   // AI Recommendation State (Pre-Send Advisor)
-  const [recommendation, setRecommendation] = useState<any>(null);
+  const [recommendation, setRecommendation] = useState<AIRecommendation | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
 
   // AI Message Draft State
@@ -51,32 +62,44 @@ export default function NewCampaignPage() {
   // Fetch AI Pre-Send Recommendation
   useEffect(() => {
     if (step === 3) {
-      setRecommendationLoading(true);
+      let active = true;
+      // Defer state update to next tick to avoid synchronous cascading renders warning
+      const timer = setTimeout(() => {
+        if (active) setRecommendationLoading(true);
+      }, 0);
       
       async function fetchRecommendation() {
         try {
           const res = await fetch(`/api/ai/recommend?segment_id=${targetSegmentId}&channel=${selectedChannel}`);
+          if (!active) return;
           if (res.ok) {
             const json = await res.json();
             setRecommendation(json.recommendation);
           } else {
             // Mock recommendation
             setTimeout(() => {
-              setRecommendation({
-                recommended_channel: selectedChannel === "sms" ? "whatsapp" : "whatsapp",
-                recommended_time: "Tuesday 7–9 PM",
-                reasoning: `Historically, the targeted cohort demonstrates 85% higher conversion on ${selectedChannel === "sms" ? "WhatsApp" : "WhatsApp"} during evening hours compared to SMS.`,
-                risk: "High volume of WhatsApp dispatches in Delhi may trigger local spam rate caps."
-              });
+              if (active) {
+                setRecommendation({
+                  recommended_channel: selectedChannel,
+                  recommended_time: "Tuesday 7–9 PM",
+                  reasoning: `Historically, the targeted cohort demonstrates 85% higher conversion on ${selectedChannel === "sms" ? "WhatsApp" : "WhatsApp"} during evening hours compared to SMS.`,
+                  risk: "High volume of WhatsApp dispatches in Delhi may trigger local spam rate caps."
+                });
+              }
             }, 600);
           }
-        } catch (e) {
-          console.error(e);
+        } catch (error) {
+          console.error(error);
         } finally {
-          setRecommendationLoading(false);
+          if (active) setRecommendationLoading(false);
         }
       }
       fetchRecommendation();
+
+      return () => {
+        active = false;
+        clearTimeout(timer);
+      };
     }
   }, [step, targetSegmentId, selectedChannel]);
 
@@ -112,8 +135,8 @@ export default function NewCampaignPage() {
           setMessageText(draft);
         }, 500);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     } finally {
       setDraftLoading(false);
     }
@@ -147,9 +170,8 @@ export default function NewCampaignPage() {
           router.push(`/campaigns/camp3`);
         }, 800);
       }
-    } catch (e) {
-      console.error(e);
-      // Fallback
+    } catch (error) {
+      console.error(error);
       router.push(`/campaigns/camp3`);
     } finally {
       setSendingCampaign(false);
@@ -313,7 +335,7 @@ export default function NewCampaignPage() {
                       `}
                     >
                       <div className="font-mono text-[9px] text-text-muted mb-1">DISPATCH CHANNEL</div>
-                      <div>{ch}</div>
+                      <div>{ch.toUpperCase()}</div>
                     </button>
                   ))}
                 </div>
@@ -330,7 +352,7 @@ export default function NewCampaignPage() {
             </Card>
           </div>
 
-          {/* Pre-Send Advisor Panel (lg:col-span-5) */}
+          {/* Pre-Send Advisor Panel */}
           <div className="lg:col-span-5">
             <Card className="border border-primary/20 relative overflow-hidden">
               <CardHeader className="border-b border-text/10 pb-4">
@@ -361,7 +383,7 @@ export default function NewCampaignPage() {
                     <div className="space-y-1">
                       <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Advisor Reasoning:</div>
                       <p className="text-text-muted leading-relaxed italic bg-surface border border-text/5 p-2 rounded shadow-recessed">
-                        "{recommendation.reasoning}"
+                        &ldquo;{recommendation.reasoning}&rdquo;
                       </p>
                     </div>
 
@@ -402,7 +424,7 @@ export default function NewCampaignPage() {
                     <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Draft Tone:</span>
                     <select
                       value={selectedTone}
-                      onChange={(e) => setSelectedTone(e.target.value as any)}
+                      onChange={(e) => setSelectedTone(e.target.value as "friendly" | "urgent" | "exclusive")}
                       className="bg-surface border border-text/10 rounded-lg p-1.5 text-xs font-mono tracking-wider shadow-extruded outline-none cursor-pointer"
                     >
                       <option value="friendly">FRIENDLY</option>
@@ -458,7 +480,7 @@ export default function NewCampaignPage() {
             </Card>
           </div>
 
-          {/* Quick Preview Card (lg:col-span-5) */}
+          {/* Quick Preview Card */}
           <div className="lg:col-span-5">
             <Card>
               <CardHeader className="border-b border-text/10 pb-4">

@@ -1,3 +1,14 @@
+/**
+ * Neumorphic Button Component
+ *
+ * Implements a tactile, dual-shadow button control with
+ * support for icon nesting, sizing scales, and semantic coloring.
+ *
+ * Responsibilities:
+ * - Render accessible, pointer-active, and keyboard-focusable button elements.
+ * - Manage neumorphic status transitions (convex to concave).
+ */
+
 import React from "react";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -8,6 +19,12 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   rightIcon?: React.ReactNode;
 }
 
+/**
+ * Tactical Button Component with Neumorphic projection shadows.
+ *
+ * @param props Button props including icons, size, variant and states
+ * @returns React button element
+ */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {

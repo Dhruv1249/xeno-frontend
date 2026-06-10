@@ -1,66 +1,36 @@
+/**
+ * Customer Profile Page
+ *
+ * Renders the detailed customer file, including purchase timelines,
+ * targeted campaigns, engagement status logs, and AI shopper summaries.
+ *
+ * Responsibilities:
+ * - Load specific customer profiles and aggregate metrics.
+ * - Render structured order logs and campaign cards.
+ * - Handle visual feedback states for communications.
+ */
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Calendar, ArrowLeft, ShoppingBag, Send, AlertTriangle } from "lucide-react";
+import { CustomerProfile, Order, Communication } from "@/types";
+import { MOCK_PROFILES } from "@/lib/mockData";
+import { Sparkles, Calendar, ArrowLeft, ShoppingBag, Send, AlertTriangle, Check, CheckCheck, XCircle } from "lucide-react";
 
-// Mock profiles mapped by ID
-const MOCK_PROFILES: Record<string, any> = {
-  c1: {
-    id: "c1",
-    name: "Aarav Sharma",
-    email: "aarav.sharma@gmail.com",
-    phone: "+91 98765 43210",
-    city: "Mumbai",
-    gender: "Male",
-    rfm_segment: "Champion",
-    rfm_recency_days: 5,
-    rfm_frequency: 15,
-    rfm_monetary: 4500,
-    rfm_score: 5,
-    ai_summary: "High-value loyal champion. Responds extremely well to exclusivity messaging, especially WhatsApp flash sale promotions. Often purchases in evening hours (7–9 PM) via the App.",
-    orders: [
-      { id: "o1", amount: 1500, channel: "app", created_at: "2026-06-05T18:30:00Z", items: [{ name: "Premium Polo Tee", price: 900, qty: 1 }, { name: "Cotton Chinos", price: 600, qty: 1 }] },
-      { id: "o2", amount: 2000, channel: "store", created_at: "2026-05-12T14:15:00Z", items: [{ name: "Casual Linen Shirt", price: 1200, qty: 1 }, { name: "Leather Belt", price: 800, qty: 1 }] },
-      { id: "o3", amount: 1000, channel: "online", created_at: "2026-04-20T11:00:00Z", items: [{ name: "Basic White Sneakers", price: 1000, qty: 1 }] },
-    ],
-    communications: [
-      { id: "com1", campaign_name: "Win-back Offer", message: "Hey Aarav, we miss you! Enjoy 20% off your next purchase.", channel: "whatsapp", status: "clicked", sent_at: "2026-06-05T12:00:00Z" },
-      { id: "com2", campaign_name: "Loyalty Reward", message: "Hi Aarav! Here is an exclusive reward for our champions.", channel: "whatsapp", status: "opened", sent_at: "2026-05-20T15:00:00Z" },
-      { id: "com3", campaign_name: "Flash Sale", message: "Urgent: Flash Sale ends in 3 hours. Order now!", channel: "sms", status: "delivered", sent_at: "2026-04-15T18:00:00Z" },
-    ]
-  },
-  default: {
-    id: "generic",
-    name: "Customer Profile",
-    email: "customer@xeno.in",
-    phone: "+91 99999 88888",
-    city: "Delhi",
-    gender: "Female",
-    rfm_segment: "Loyal",
-    rfm_recency_days: 12,
-    rfm_frequency: 5,
-    rfm_monetary: 2200,
-    rfm_score: 4,
-    ai_summary: "Loyal shopper who demonstrates steady purchases. Responsive to email marketing containing personalized recommendations. Prefers shopping via website.",
-    orders: [
-      { id: "o4", amount: 1200, channel: "online", created_at: "2026-05-28T10:30:00Z", items: [{ name: "Printed Kurti", price: 1200, qty: 1 }] },
-      { id: "o5", amount: 1000, channel: "online", created_at: "2026-04-15T09:00:00Z", items: [{ name: "Handcrafted Dupatta", price: 1000, qty: 1 }] }
-    ],
-    communications: [
-      { id: "com4", campaign_name: "New Arrival Promotion", message: "Check out our latest ethnic styles, customized for you.", channel: "email", status: "opened", sent_at: "2026-05-28T09:00:00Z" }
-    ]
-  }
-};
-
+/**
+ * Customer Profile screen featuring order history and campaign receipts.
+ *
+ * @returns React page element
+ */
 export default function CustomerProfilePage() {
   const params = useParams();
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -75,8 +45,8 @@ export default function CustomerProfilePage() {
             return;
           }
         }
-      } catch (e) {
-        console.error("API Profile fetch failed, falling back to mock", e);
+      } catch (error) {
+        console.error("API Profile fetch failed, falling back to mock", error);
       }
       // Fallback
       const fallbackProfile = MOCK_PROFILES[id] || {
@@ -116,6 +86,23 @@ export default function CustomerProfilePage() {
       </div>
     );
   }
+
+  const renderStatusTicks = (status: string) => {
+    switch (status) {
+      case "sent":
+        return <Check className="w-3.5 h-3.5 text-text-muted/60" />;
+      case "delivered":
+        return <CheckCheck className="w-3.5 h-3.5 text-text-muted" />;
+      case "opened":
+        return <CheckCheck className="w-3.5 h-3.5 text-success" />;
+      case "clicked":
+        return <CheckCheck className="w-3.5 h-3.5 text-primary shadow-[0_0_8px_#006666] animate-pulse" />;
+      case "failed":
+        return <XCircle className="w-3.5 h-3.5 text-danger" />;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="space-y-8 w-full">
@@ -165,7 +152,7 @@ export default function CustomerProfilePage() {
             {/* Contact Details Inset Box */}
             <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-recessed text-left space-y-2 font-mono text-[11px] text-text-muted">
               <div>EMAIL: <span className="text-text font-bold">{profile.email}</span></div>
-              <div>PHONE: <span className="text-text font-bold">{profile.phone}</span></div>
+              <div>PHONE: <span className="text-text font-bold">{profile.phone || "N/A"}</span></div>
             </div>
 
             {/* RFM Score breakdown */}
@@ -191,7 +178,7 @@ export default function CustomerProfilePage() {
                 <span>AI Insight</span>
               </div>
               <p className="font-sans text-xs italic leading-relaxed text-text border-l-2 border-primary/40 pl-3">
-                "{profile.ai_summary}"
+                &ldquo;{profile.ai_summary || "Steady customer behavior"}&rdquo;
               </p>
             </div>
           </Card>
@@ -211,7 +198,7 @@ export default function CustomerProfilePage() {
             <CardContent className="pt-6">
               {profile.orders && profile.orders.length > 0 ? (
                 <div className="space-y-6 relative border-l border-text/10 pl-6 ml-3 font-sans">
-                  {profile.orders.map((order: any, idx: number) => (
+                  {profile.orders.map((order: Order, idx: number) => (
                     <div key={order.id || idx} className="relative">
                       {/* Bullet icon */}
                       <span className="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-surface border-2 border-primary shadow-extruded" />
@@ -239,7 +226,7 @@ export default function CustomerProfilePage() {
                             <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted mb-1">Items:</div>
                             {order.items && Array.isArray(order.items) ? (
                               <ul className="list-disc list-inside text-xs text-text space-y-0.5">
-                                {order.items.map((it: any, i: number) => (
+                                {order.items.map((it: { name: string; qty: number }, i: number) => (
                                   <li key={i}>
                                     {it.name} <span className="font-mono font-bold">x{it.qty}</span>
                                   </li>
@@ -281,7 +268,7 @@ export default function CustomerProfilePage() {
             <CardContent className="pt-6">
               {profile.communications && profile.communications.length > 0 ? (
                 <div className="space-y-4">
-                  {profile.communications.map((com: any, idx: number) => (
+                  {profile.communications.map((com: Communication, idx: number) => (
                     <div key={com.id || idx} className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded space-y-3">
                       
                       {/* Top status header */}
@@ -303,21 +290,12 @@ export default function CustomerProfilePage() {
                               minute: "2-digit",
                             }).toUpperCase()}
                           </span>
-                          <Badge
-                            variant={
-                              com.status === "clicked"
-                                ? "primary"
-                                : com.status === "opened" || com.status === "delivered"
-                                ? "success"
-                                : com.status === "failed"
-                                ? "danger"
-                                : "default"
-                            }
-                            type="recessed"
-                            className="text-[9px]"
-                          >
-                            {com.status}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-mono text-text-muted mr-1 font-bold uppercase">{com.status}</span>
+                            <div className="w-7 h-7 rounded bg-surface border border-text/5 shadow-recessed flex items-center justify-center">
+                              {renderStatusTicks(com.status)}
+                            </div>
+                          </div>
                         </div>
                       </div>
 

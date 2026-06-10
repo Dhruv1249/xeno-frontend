@@ -1,3 +1,14 @@
+/**
+ * Dashboard Sidebar Layout
+ *
+ * Provides the global navigation layout, including the sidebar with links
+ * to pages (Brief, Customers, Segments, Campaigns) and the top bar branding.
+ *
+ * Responsibilities:
+ * - Render navigation elements and track current active pathname.
+ * - Enforce full-screen neumorphic surface containment.
+ */
+
 "use client";
 
 import React from "react";
@@ -9,6 +20,12 @@ interface SidebarLayoutProps {
   children: React.ReactNode;
 }
 
+/**
+ * Main dashboard layout wrapping all child views with sidebar.
+ *
+ * @param props SidebarLayoutProps
+ * @returns React page layout element
+ */
 export default function DashboardLayout({ children }: SidebarLayoutProps) {
   const pathname = usePathname();
 

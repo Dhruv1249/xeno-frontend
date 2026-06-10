@@ -1,3 +1,15 @@
+/**
+ * Shopper Matrix & RFM Analytics Page
+ *
+ * Renders the customers database dashboard including the interactive RFM Scatter
+ * Matrix (allowing segment generation on click), search parameters, and tabular details.
+ *
+ * Responsibilities:
+ * - Load indexed shopper records and active segment types.
+ * - Render Recharts interactive scatter charts.
+ * - Handle filters and route actions to Profile views.
+ */
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -6,7 +18,9 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Eye, Filter, RefreshCw } from "lucide-react";
+import { Search, MapPin, Eye, RefreshCw } from "lucide-react";
+import { Customer } from "@/types";
+import { MOCK_CUSTOMERS } from "@/lib/mockData";
 import {
   ScatterChart,
   Scatter,
@@ -16,22 +30,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
-  Legend,
+  TooltipContentProps,
 } from "recharts";
-
-// Mock customer data reflecting the 500 customers seed data
-const MOCK_CUSTOMERS = [
-  { id: "c1", name: "Aarav Sharma", email: "aarav.sharma@gmail.com", phone: "+91 98765 43210", city: "Mumbai", rfm_segment: "Champion", rfm_recency_days: 5, rfm_frequency: 15, rfm_monetary: 4500, rfm_score: 5 },
-  { id: "c2", name: "Ananya Iyer", email: "ananya.iyer@yahoo.com", phone: "+91 98123 45678", city: "Bengaluru", rfm_segment: "Champion", rfm_recency_days: 10, rfm_frequency: 18, rfm_monetary: 5200, rfm_score: 5 },
-  { id: "c3", name: "Rohan Verma", email: "rohan.verma@outlook.com", phone: "+91 99887 76655", city: "Delhi", rfm_segment: "Loyal", rfm_recency_days: 18, rfm_frequency: 9, rfm_monetary: 2800, rfm_score: 4 },
-  { id: "c4", name: "Priya Nair", email: "priya.nair@gmail.com", phone: "+91 97654 32109", city: "Chennai", rfm_segment: "At Risk", rfm_recency_days: 45, rfm_frequency: 8, rfm_monetary: 3100, rfm_score: 3 },
-  { id: "c5", name: "Vikram Malhotra", email: "vikram.m@gmail.com", phone: "+91 96543 21098", city: "Mumbai", rfm_segment: "Lost", rfm_recency_days: 120, rfm_frequency: 3, rfm_monetary: 900, rfm_score: 1 },
-  { id: "c6", name: "Kavya Patel", email: "kavya.patel@gmail.com", phone: "+91 95432 10987", city: "Ahmedabad", rfm_segment: "New", rfm_recency_days: 4, rfm_frequency: 1, rfm_monetary: 1500, rfm_score: 4 },
-  { id: "c7", name: "Aditya Rao", email: "aditya.rao@gmail.com", phone: "+91 94321 09876", city: "Bengaluru", rfm_segment: "Champion", rfm_recency_days: 2, rfm_frequency: 12, rfm_monetary: 3800, rfm_score: 5 },
-  { id: "c8", name: "Meera Joshi", email: "meera.j@gmail.com", phone: "+91 93210 98765", city: "Pune", rfm_segment: "At Risk", rfm_recency_days: 55, rfm_frequency: 6, rfm_monetary: 2200, rfm_score: 3 },
-  { id: "c9", name: "Kabir Singh", email: "kabir.singh@gmail.com", phone: "+91 92109 87654", city: "Delhi", rfm_segment: "Loyal", rfm_recency_days: 22, rfm_frequency: 10, rfm_monetary: 3200, rfm_score: 4 },
-  { id: "c10", name: "Diya Gupta", email: "diya.g@gmail.com", phone: "+91 91098 76543", city: "Hyderabad", rfm_segment: "Lost", rfm_recency_days: 95, rfm_frequency: 2, rfm_monetary: 600, rfm_score: 2 },
-];
 
 const SEGMENT_COLORS: Record<string, string> = {
   Champion: "#006666", // Teal
@@ -41,16 +41,63 @@ const SEGMENT_COLORS: Record<string, string> = {
   New: "#8B5CF6",       // Purple
 };
 
+interface ScatterPoint {
+  name: string;
+  recency: number;
+  frequency: number;
+  monetary: number;
+  segment: string;
+}
+
+/**
+ * Custom Tooltip Component for Recharts Scatter plot.
+ * Declared outside the render function to avoid recreation.
+ */
+const CustomTooltip: React.FC<Partial<TooltipContentProps<number, string>>> = ({ active, payload }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload as ScatterPoint;
+    return (
+      <div className="bg-surface border border-text/15 p-3 rounded-lg shadow-extruded font-sans text-xs">
+        <p className="font-bold uppercase tracking-wider text-text mb-1.5">{data.name}</p>
+        <p className="text-text-muted">
+          Segment:{" "}
+          <span className="font-bold" style={{ color: SEGMENT_COLORS[data.segment] }}>
+            {data.segment}
+          </span>
+        </p>
+        <p className="text-text-muted">
+          Recency: <span className="font-mono">{data.recency} days</span>
+        </p>
+        <p className="text-text-muted">
+          Frequency: <span className="font-mono">{data.frequency} orders</span>
+        </p>
+        <p className="text-text-muted">
+          Monetary: <span className="font-mono">₹{data.monetary}</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+/**
+ * Renders the Shopper Directory with RFM Heatmap.
+ *
+ * @returns React page element
+ */
 export default function CustomersPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
   const [selectedCity, setSelectedCity] = useState<string>("All");
-  const [customers, setCustomers] = useState(MOCK_CUSTOMERS);
+  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
+    // Avoid synchronous setState warn in React 19 by deferring client mount state
+    const timer = setTimeout(() => {
+      setIsClient(true);
+    }, 0);
 
     async function fetchCustomers() {
       try {
@@ -59,19 +106,22 @@ export default function CustomersPage() {
           const json = await res.json();
           if (json.data) setCustomers(json.data);
         }
-      } catch (e) {
-        console.error("Failed fetching live customers, falling back to mock", e);
+      } catch (error) {
+        console.error("Failed fetching live customers, falling back to mock", error);
       }
     }
     fetchCustomers();
+
+    return () => clearTimeout(timer);
   }, []);
 
   // Filtered List
   const filteredCustomers = customers.filter((customer) => {
-    const matchesSearch =
-      customer.name.toLowerCase().includes(search.toLowerCase()) ||
-      customer.email.toLowerCase().includes(search.toLowerCase()) ||
-      customer.city.toLowerCase().includes(search.toLowerCase());
+    const nameMatch = customer.name.toLowerCase().includes(search.toLowerCase());
+    const emailMatch = customer.email.toLowerCase().includes(search.toLowerCase());
+    const cityMatch = customer.city.toLowerCase().includes(search.toLowerCase());
+    
+    const matchesSearch = nameMatch || emailMatch || cityMatch;
 
     const matchesSegment =
       selectedSegment === "All" || customer.rfm_segment === selectedSegment;
@@ -86,18 +136,19 @@ export default function CustomersPage() {
   const cities = Array.from(new Set(customers.map((c) => c.city)));
 
   // Prepare RFM Scatter Data
-  const scatterData = customers.map((c) => ({
+  const scatterData: ScatterPoint[] = customers.map((c) => ({
     name: c.name,
-    recency: c.rfm_recency_days || 0,
-    frequency: c.rfm_frequency || 0,
-    monetary: Number(c.rfm_monetary) || 0,
-    segment: c.rfm_segment || "Others",
+    recency: c.rfm_recency_days ?? 0,
+    frequency: c.rfm_frequency ?? 0,
+    monetary: Number(c.rfm_monetary) ?? 0,
+    segment: c.rfm_segment ?? "Others",
   }));
 
-  const handleClusterClick = (data: any) => {
-    if (data && data.segment) {
+  const handleClusterClick = (data: unknown) => {
+    const point = data as ScatterPoint;
+    if (point && point.segment) {
       // Pre-fill a segment based on the segment name clicked
-      router.push(`/segments/new?preset=${encodeURIComponent(data.segment)}`);
+      router.push(`/segments/new?preset=${encodeURIComponent(point.segment)}`);
     }
   };
 
@@ -109,7 +160,7 @@ export default function CustomersPage() {
           Shopper Database
         </span>
         <h1 className="font-sans font-bold text-3xl uppercase tracking-wider text-text mt-1">
-          Shoppers & RFM Analytics
+          Shoppers &amp; RFM Analytics
         </h1>
       </div>
 
@@ -147,24 +198,7 @@ export default function CustomersPage() {
                     label={{ value: "Frequency (Total orders)", angle: -90, position: "insideLeft", offset: 0, fill: "#57534E" }}
                   />
                   <ZAxis type="number" dataKey="monetary" range={[40, 400]} name="Spend" unit=" INR" />
-                  <Tooltip
-                    cursor={{ strokeDasharray: "3 3" }}
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                          <div className="bg-surface border border-text/15 p-3 rounded-lg shadow-extruded font-sans text-xs">
-                            <p className="font-bold uppercase tracking-wider text-text mb-1.5">{data.name}</p>
-                            <p className="text-text-muted">Segment: <span className="font-bold" style={{ color: SEGMENT_COLORS[data.segment] }}>{data.segment}</span></p>
-                            <p className="text-text-muted">Recency: <span className="font-mono">{data.recency} days</span></p>
-                            <p className="text-text-muted">Frequency: <span className="font-mono">{data.frequency} orders</span></p>
-                            <p className="text-text-muted">Monetary: <span className="font-mono">₹{data.monetary}</span></p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
+                  <Tooltip cursor={{ strokeDasharray: "3:3" }} content={<CustomTooltip />} />
                   <Scatter name="Shoppers" data={scatterData} onClick={handleClusterClick}>
                     {scatterData.map((entry, index) => (
                       <Cell

@@ -1,57 +1,33 @@
+/**
+ * Campaigns List Page
+ *
+ * Displays all marketing campaign dispatches, their current statuses
+ * (draft, scheduled, running, completed), and high-level delivery summaries.
+ *
+ * Responsibilities:
+ * - Load campaigns from history.
+ * - Render stats deltas and summaries.
+ * - Direct users to Analytics and Creator wizards.
+ */
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Send, Sparkles, MessageCircle, BarChart3, AlertCircle, PlusCircle } from "lucide-react";
+import { Send, Sparkles, AlertCircle, PlusCircle, BarChart3 } from "lucide-react";
+import { Campaign } from "@/types";
+import { MOCK_CAMPAIGNS } from "@/lib/mockData";
 
-// Mock campaigns containing 2 completed campaigns with stats + drafts as specified in AGENTS.md
-const MOCK_CAMPAIGNS = [
-  {
-    id: "camp1",
-    name: "Loyalty Reward - Champions Offer",
-    segment_name: "Champions",
-    channel: "whatsapp",
-    status: "completed",
-    sent_count: 85,
-    open_count: 72,
-    click_count: 48,
-    failed_count: 2,
-    created_at: "2026-05-20T12:00:00Z",
-    ai_summary: "Strong performing campaign. Delivered an exceptional 84% open rate and 66% click-through rate over WhatsApp. Minimal failure rate.",
-  },
-  {
-    id: "camp2",
-    name: "Lapsed Win-back Campaign",
-    segment_name: "Lapsed Shoppers (60+ Days)",
-    channel: "sms",
-    status: "completed",
-    sent_count: 145,
-    open_count: 58,
-    click_count: 12,
-    failed_count: 15,
-    created_at: "2026-05-28T14:30:00Z",
-    ai_summary: "Win-back campaign executed over SMS. 40% open rate, with 8.2% click-through. Failure rate was slightly high (10.3%) due to inactive contacts.",
-  },
-  {
-    id: "camp3",
-    name: "Flash Sale - Monsoon Clearance",
-    segment_name: "At-Risk High Spenders",
-    channel: "whatsapp",
-    status: "draft",
-    sent_count: 0,
-    open_count: 0,
-    click_count: 0,
-    failed_count: 0,
-    created_at: "2026-06-05T09:00:00Z",
-    ai_summary: null,
-  },
-];
-
+/**
+ * Lists campaign records and statuses.
+ *
+ * @returns React page element
+ */
 export default function CampaignsListPage() {
-  const [campaigns, setCampaigns] = useState(MOCK_CAMPAIGNS);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(MOCK_CAMPAIGNS);
 
   useEffect(() => {
     async function fetchCampaigns() {
@@ -61,19 +37,19 @@ export default function CampaignsListPage() {
           const json = await res.json();
           if (json.data) setCampaigns(json.data);
         }
-      } catch (e) {
-        console.error("Failed fetching live campaigns, falling back to mock", e);
+      } catch (error) {
+        console.error("Failed fetching live campaigns, falling back to mock", error);
       }
     }
     fetchCampaigns();
   }, []);
 
-  const getChannelBadge = (ch: string) => {
+  const getChannelLabel = (ch: string) => {
     const channelMap: Record<string, string> = {
-      whatsapp: "whatsapp",
-      sms: "sms",
-      email: "email",
-      rcs: "rcs",
+      whatsapp: "WhatsApp",
+      sms: "SMS",
+      email: "Email",
+      rcs: "RCS",
     };
     return channelMap[ch] || ch;
   };
@@ -131,7 +107,7 @@ export default function CampaignsListPage() {
               {/* Channel & Date */}
               <div className="flex items-center gap-4 text-right self-start md:self-auto">
                 <div className="text-left md:text-right font-mono text-[10px] text-text-muted">
-                  <div>DISPATCH: <span className="text-text uppercase font-bold">{getChannelBadge(camp.channel)}</span></div>
+                  <div>DISPATCH: <span className="text-text uppercase font-bold">{getChannelLabel(camp.channel)}</span></div>
                   <div>CREATED: {new Date(camp.created_at).toLocaleDateString()}</div>
                 </div>
               </div>
@@ -169,7 +145,7 @@ export default function CampaignsListPage() {
                   <div className="md:col-span-2 bg-surface border border-text/5 p-3 rounded-lg shadow-recessed flex items-start gap-2 relative overflow-hidden">
                     <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5 animate-pulse" />
                     <p className="font-sans text-[11px] text-text-muted leading-relaxed italic">
-                      "{camp.ai_summary || "Summarizing campaign results..."}"
+                      &ldquo;{camp.ai_summary || "Summarizing campaign results..."}&rdquo;
                     </p>
                   </div>
                 </>
@@ -193,7 +169,7 @@ export default function CampaignsListPage() {
               <div className="flex justify-end mt-4 pt-3 border-t border-text/5">
                 <Link href={`/campaigns/${camp.id}`}>
                   <Button variant="default" size="sm" rightIcon={<BarChart3 className="w-3.5 h-3.5" />}>
-                    View Analytics & Live Feed
+                    View Analytics &amp; Live Feed
                   </Button>
                 </Link>
               </div>

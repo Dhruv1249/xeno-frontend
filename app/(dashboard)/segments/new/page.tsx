@@ -1,22 +1,23 @@
+/**
+ * Segment Builder Page
+ *
+ * Implements the segment builder UI with a visual filter builder
+ * syncing with a natural language chat interface. Shows audience counts.
+ *
+ * Responsibilities:
+ * - Sync visual filters and chat prompt models.
+ * - Call AI and count endpoints to update estimates.
+ * - Enforce parameter rules validation.
+ */
+
 "use client";
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Trash2, Plus, Sparkles, MessageSquare, Send, Users, ShieldAlert } from "lucide-react";
-
-interface FilterRule {
-  field: string;
-  op: string;
-  value: any;
-}
-
-interface FilterRules {
-  operator: string;
-  rules: FilterRule[];
-}
+import { ArrowLeft, Trash2, Plus, Sparkles, Send, Users } from "lucide-react";
+import { FilterRule, FilterRules } from "@/types";
 
 const FIELDS = [
   { value: "rfm_recency_days", label: "Recency (Days)" },
@@ -41,20 +42,30 @@ const SEGMENTS_LIST = ["Champion", "Loyal", "At Risk", "Lost", "New"];
 const CITIES_LIST = ["Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Pune"];
 const GENDERS_LIST = ["Male", "Female", "Other"];
 
+interface ChatLogMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/**
+ * Visual-chat segment workspace content panel.
+ *
+ * @returns React element
+ */
 function NewSegmentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const presetSegment = searchParams ? searchParams.get("preset") : null;
 
   // Segment State
-  const [segmentName, setSegmentName] = useState("");
-  const [segmentDescription, setSegmentDescription] = useState("");
-  const [rules, setRules] = useState<FilterRule[]>([]);
+  const [segmentName, setSegmentName] = useState<string>(() => presetSegment ? `${presetSegment} Target Group` : "");
+  const [segmentDescription, setSegmentDescription] = useState<string>(() => presetSegment ? `Generated segment targeting the ${presetSegment} RFM cohort.` : "");
+  const [rules, setRules] = useState<FilterRule[]>(() => presetSegment ? [{ field: "rfm_segment", op: "eq", value: presetSegment }] : [{ field: "rfm_recency_days", op: "lte", value: 30 }]);
   const [operator, setOperator] = useState("AND");
 
   // Chat State
   const [chatInput, setChatInput] = useState("");
-  const [chatLog, setChatLog] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
+  const [chatLog, setChatLog] = useState<ChatLogMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
 
   // Audience State
@@ -62,17 +73,6 @@ function NewSegmentPageContent() {
   const [audienceSample, setAudienceSample] = useState<{ id: string; name: string }[]>([]);
   const [audienceLoading, setAudienceLoading] = useState(false);
   const [savingSegment, setSavingSegment] = useState(false);
-
-  // Initialize preset if routed from RFM chart click
-  useEffect(() => {
-    if (presetSegment) {
-      setSegmentName(`${presetSegment} Target Group`);
-      setSegmentDescription(`Generated segment targeting the ${presetSegment} RFM cohort.`);
-      setRules([{ field: "rfm_segment", op: "eq", value: presetSegment }]);
-    } else {
-      setRules([{ field: "rfm_recency_days", op: "lte", value: 30 }]);
-    }
-  }, [presetSegment]);
 
   // Debounced Audience Count Fetcher
   const updateAudienceCount = useCallback(async (currentRules: FilterRule[], currentOperator: string) => {
@@ -113,8 +113,8 @@ function NewSegmentPageContent() {
         setAudienceCount(count);
         setAudienceSample(samples);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     } finally {
       setAudienceLoading(false);
     }
@@ -170,8 +170,8 @@ function NewSegmentPageContent() {
         }
       } else {
         // Mock client-side parser to keep builder functional if backend routes are missing
-        let parsedRules: FilterRule[] = [];
-        let text = chatInput.toLowerCase();
+        const parsedRules: FilterRule[] = [];
+        const text = query.toLowerCase();
 
         if (text.includes("mumbai")) {
           parsedRules.push({ field: "city", op: "eq", value: "Mumbai" });
@@ -206,7 +206,8 @@ function NewSegmentPageContent() {
           ]);
         }
       }
-    } catch (e) {
+    } catch (error) {
+      console.error(error);
       setChatLog((prev) => [
         ...prev,
         { role: "assistant", text: "Communication error. Checked client rules mapping fallback." },
@@ -225,7 +226,7 @@ function NewSegmentPageContent() {
     setRules((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const updateRule = (idx: number, key: keyof FilterRule, val: any) => {
+  const updateRule = (idx: number, key: keyof FilterRule, val: string | number | string[] | number[]) => {
     setRules((prev) =>
       prev.map((r, i) => {
         if (i !== idx) return r;
@@ -268,7 +269,8 @@ function NewSegmentPageContent() {
       } else {
         alert("Failed saving segment. Checked API routes connection.");
       }
-    } catch (e) {
+    } catch (error) {
+      console.error(error);
       alert("Error saving segment.");
     } finally {
       setSavingSegment(false);
@@ -297,7 +299,7 @@ function NewSegmentPageContent() {
       {/* Split Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* Left Column: Visual Rule Builder (lg:col-span-7) */}
+        {/* Left Column: Visual Rule Builder */}
         <div className="lg:col-span-7 space-y-6">
           <Card>
             <CardHeader className="border-b border-text/10 pb-4">
@@ -385,7 +387,7 @@ function NewSegmentPageContent() {
                     <div className="flex-1 min-w-[150px]">
                       {rule.field === "rfm_segment" ? (
                         <select
-                          value={rule.value}
+                          value={String(rule.value)}
                           onChange={(e) => updateRule(idx, "value", e.target.value)}
                           className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono tracking-wider shadow-extruded w-full outline-none focus:border-primary"
                         >
@@ -397,7 +399,7 @@ function NewSegmentPageContent() {
                         </select>
                       ) : rule.field === "city" ? (
                         <select
-                          value={rule.value}
+                          value={String(rule.value)}
                           onChange={(e) => updateRule(idx, "value", e.target.value)}
                           className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono tracking-wider shadow-extruded w-full outline-none focus:border-primary"
                         >
@@ -409,7 +411,7 @@ function NewSegmentPageContent() {
                         </select>
                       ) : rule.field === "gender" ? (
                         <select
-                          value={rule.value}
+                          value={String(rule.value)}
                           onChange={(e) => updateRule(idx, "value", e.target.value)}
                           className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono tracking-wider shadow-extruded w-full outline-none focus:border-primary"
                         >
@@ -422,7 +424,7 @@ function NewSegmentPageContent() {
                       ) : (
                         <input
                           type="number"
-                          value={rule.value || ""}
+                          value={typeof rule.value === "number" ? rule.value : ""}
                           onChange={(e) => updateRule(idx, "value", Number(e.target.value))}
                           className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono tracking-wider shadow-extruded w-full outline-none focus:border-primary"
                         />
@@ -455,7 +457,7 @@ function NewSegmentPageContent() {
           </Card>
         </div>
 
-        {/* Right Column: Chat builder (lg:col-span-5) */}
+        {/* Right Column: Chat builder */}
         <div className="lg:col-span-5 space-y-6">
           
           {/* Chat assistant */}
@@ -474,7 +476,7 @@ function NewSegmentPageContent() {
               <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-recessed h-48 overflow-y-auto space-y-3 font-sans text-xs">
                 {chatLog.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-text-muted text-center italic leading-relaxed px-4">
-                    Type a prompt below to build segment filters dynamically. E.g. "Find champions from Bangalore"
+                    Type a prompt below to build segment filters dynamically. E.g. &ldquo;Find champions from Bangalore&rdquo;
                   </div>
                 ) : (
                   chatLog.map((log, i) => (
@@ -571,6 +573,11 @@ function NewSegmentPageContent() {
   );
 }
 
+/**
+ * Wraps segment builder content inside Suspense.
+ *
+ * @returns React page element
+ */
 export default function NewSegmentPage() {
   return (
     <Suspense fallback={<div className="font-mono text-xs text-text-muted p-8 animate-pulse">Loading Segment Builder...</div>}>

@@ -1,12 +1,24 @@
+/**
+ * Campaign Analytics & Live Feed Ticker Page
+ *
+ * Renders campaign metrics, Recharts area performance graphs, and the
+ * signature Double-Tick live callback log ticker (consuming from SSE).
+ *
+ * Responsibilities:
+ * - Load specific campaign analytics and chart timelines.
+ * - Consume SSE feeds and trigger callback receipt tickers.
+ * - Call AI route to generate post-campaign performance summaries.
+ */
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Sparkles, Check, CheckCheck, RefreshCw, Send, XCircle, BarChart3, Clock } from "lucide-react";
+import { ArrowLeft, Sparkles, Check, CheckCheck, XCircle, Clock } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -17,8 +29,31 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Mock campaign details
-const MOCK_CAMPAIGN_DETAILS: Record<string, any> = {
+interface ChartTimePoint {
+  time: string;
+  sent: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+}
+
+interface AnalyticsCampaign {
+  id: string;
+  name: string;
+  segment_name: string;
+  channel: string;
+  status: string;
+  sent_count: number;
+  delivered_count: number;
+  open_count: number;
+  click_count: number;
+  failed_count: number;
+  message_template: string;
+  ai_summary?: string;
+  chart_data: ChartTimePoint[];
+}
+
+const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
   camp1: {
     id: "camp1",
     name: "Loyalty Reward - Champions Offer",
@@ -89,11 +124,16 @@ interface FeedEvent {
   timestamp: string;
 }
 
+/**
+ * Renders campaign analytics stats and the live feed ticker.
+ *
+ * @returns React page element
+ */
 export default function CampaignAnalyticsPage() {
   const params = useParams();
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
 
-  const [campaign, setCampaign] = useState<any>(null);
+  const [campaign, setCampaign] = useState<AnalyticsCampaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
   
@@ -116,8 +156,8 @@ export default function CampaignAnalyticsPage() {
             return;
           }
         }
-      } catch (e) {
-        console.error(e);
+      } catch (error) {
+        console.error(error);
       }
       
       // Fallback
@@ -132,7 +172,7 @@ export default function CampaignAnalyticsPage() {
 
   // Connect to SSE Live Feed + client-side receipt simulation fallback
   useEffect(() => {
-    if (!id || loading) return;
+    if (!id || loading || !campaign) return;
 
     // Connect to Next.js SSE endpoint
     const url = `/api/feed?campaign_id=${id}`;
@@ -155,7 +195,7 @@ export default function CampaignAnalyticsPage() {
           ]);
 
           // Dynamically bump counters if running
-          setCampaign((curr: any) => {
+          setCampaign((curr) => {
             if (!curr) return curr;
             const updated = { ...curr };
             if (data.event_type === "delivered") updated.delivered_count += 1;
@@ -194,7 +234,7 @@ export default function CampaignAnalyticsPage() {
       setFeedEvents((prev) => [newSimulatedEvent, ...prev.slice(0, 29)]);
 
       // Adjust live counters slightly to match simulated events
-      setCampaign((curr: any) => {
+      setCampaign((curr) => {
         if (!curr || curr.status === "completed") return curr;
         const copy = { ...curr };
         if (randomEvent === "delivered") copy.delivered_count = Math.min(copy.sent_count, copy.delivered_count + 1);
@@ -209,10 +249,11 @@ export default function CampaignAnalyticsPage() {
       eventSource.close();
       clearInterval(interval);
     };
-  }, [id, loading, campaign?.channel]);
+  }, [id, loading, campaign]);
 
   // Summarize Campaign via Gemini API
   const handleSummarize = async () => {
+    if (!campaign) return;
     setAiSummaryLoading(true);
     try {
       const res = await fetch(`/api/ai/summary?campaign_id=${id}`);
@@ -227,8 +268,8 @@ export default function CampaignAnalyticsPage() {
           );
         }, 600);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     } finally {
       setAiSummaryLoading(false);
     }
@@ -327,7 +368,7 @@ export default function CampaignAnalyticsPage() {
       {/* Split Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* Left Column: Recharts Line Chart (lg:col-span-7) */}
+        {/* Left Column: Recharts Line Chart */}
         <div className="lg:col-span-7 space-y-6">
           <Card>
             <CardHeader className="border-b border-text/10 pb-4">
@@ -382,18 +423,18 @@ export default function CampaignAnalyticsPage() {
             <CardContent className="pt-4 text-xs font-sans">
               {(aiSummary || campaign.ai_summary) ? (
                 <p className="text-text-muted leading-relaxed italic border-l-2 border-primary/45 pl-3">
-                  "{aiSummary || campaign.ai_summary}"
+                  &ldquo;{aiSummary || campaign.ai_summary}&rdquo;
                 </p>
               ) : (
                 <div className="text-text-muted italic py-1 text-center">
-                  Click 'Generate Summary' to retrieve a Gemini-driven evaluation of this campaign's dispatch rates.
+                  Click &apos;Generate Summary&apos; to retrieve a Gemini-driven evaluation of this campaign&apos;s dispatch rates.
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Right Column: SIGNATURE LIVE TICKER (lg:col-span-5) */}
+        {/* Right Column: SIGNATURE LIVE TICKER */}
         <div className="lg:col-span-5 space-y-6">
           <Card>
             <CardHeader className="border-b border-text/10 pb-4 flex flex-row items-center justify-between space-y-0">

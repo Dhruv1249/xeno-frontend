@@ -1,7 +1,18 @@
+/**
+ * Campaign Templates Library Component
+ *
+ * Implements a preset library displaying pre-configured layouts
+ * for standard marketing actions (win-back, flash sale, etc.).
+ *
+ * Responsibilities:
+ * - Render selection list for campaign structures.
+ * - Supply initial channel, filter segments, and message scaffold values.
+ */
+
 import React from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, MessageCircle, AlertTriangle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 
 export interface CampaignTemplate {
   id: string;
@@ -75,6 +86,12 @@ interface TemplateLibraryProps {
   selectedTemplateId?: string;
 }
 
+/**
+ * Grid rendering campaign template cards.
+ *
+ * @param props Library options including selection callbacks and active templates
+ * @returns React element
+ */
 export const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
   onSelectTemplate,
   selectedTemplateId,
