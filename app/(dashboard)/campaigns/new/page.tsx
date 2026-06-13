@@ -12,7 +12,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import { MOCK_TARGET_SEGMENTS } from "@/lib/mockData";
  *
  * @returns React page element
  */
-export default function NewCampaignPage() {
+function NewCampaignPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const draftId = searchParams ? searchParams.get("draft") : null;
@@ -836,5 +836,22 @@ export default function NewCampaignPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Wraps campaign creation wizard inside Suspense.
+ *
+ * @returns React page element
+ */
+export default function NewCampaignPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-full flex items-center justify-center min-h-[300px] font-mono text-xs text-text-muted animate-pulse">
+        LOADING CAMPAIGN BUILDER...
+      </div>
+    }>
+      <NewCampaignPageContent />
+    </Suspense>
   );
 }
