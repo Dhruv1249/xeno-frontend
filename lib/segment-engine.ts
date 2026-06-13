@@ -71,7 +71,7 @@ export function buildSegmentSql(filterRules: FilterRules): SqlQueryResult {
     }
 
     let comparisonOp = "";
-    let val = rule.value;
+    const val = rule.value;
 
     switch (rule.op) {
       case "eq":

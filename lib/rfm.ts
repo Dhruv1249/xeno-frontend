@@ -10,7 +10,7 @@
  * - Assign composite scores and target segment names.
  */
 
-import { getCustomerRfmBaseMetrics, updateCustomerRfmScores } from "./db";
+import { getCustomerRfmBaseMetrics, pool } from "./db";
 
 /**
  * Calculates and returns the quintile score (1 to 5) for a given value
@@ -103,7 +103,7 @@ export async function computeRfmScores(): Promise<void> {
   const frequencyValues = metrics.map((m) => m.frequency).sort((a, b) => a - b);
   const monetaryValues = metrics.map((m) => m.monetary).sort((a, b) => a - b);
 
-  for (const customer of metrics) {
+  const updates = metrics.map((customer) => {
     const rScore = calculateQuintile(customer.recency_days, recencyValues, true);
     const fScore = calculateQuintile(customer.frequency, frequencyValues, false);
     const mScore = calculateQuintile(customer.monetary, monetaryValues, false);
@@ -112,13 +112,47 @@ export async function computeRfmScores(): Promise<void> {
     const compositeScore = Math.round((rScore + fScore + mScore) / 3);
     const segment = classifyRfmSegment(rScore, fScore, mScore, customer.frequency);
 
-    await updateCustomerRfmScores(
-      customer.id,
-      customer.recency_days,
-      customer.frequency,
-      customer.monetary,
-      compositeScore,
-      segment
-    );
+    return {
+      id: customer.id,
+      recency_days: customer.recency_days,
+      frequency: customer.frequency,
+      monetary: customer.monetary,
+      score: compositeScore,
+      segment,
+    };
+  });
+
+  const chunkSize = 5000;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const chunk = updates.slice(i, i + chunkSize);
+    const valuePlaceholders: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    chunk.forEach((up) => {
+      valuePlaceholders.push(`($${paramIdx}::uuid, $${paramIdx+1}::int, $${paramIdx+2}::int, $${paramIdx+3}::decimal, $${paramIdx+4}::int, $${paramIdx+5}::text)`);
+      params.push(up.id, up.recency_days, up.frequency, up.monetary, up.score, up.segment);
+      paramIdx += 6;
+    });
+
+    const queryText = `
+      UPDATE customers AS c
+      SET rfm_recency_days = u.recency_days,
+          rfm_frequency = u.frequency,
+          rfm_monetary = u.monetary,
+          rfm_score = u.score,
+          rfm_segment = u.segment
+      FROM (
+        VALUES ${valuePlaceholders.join(", ")}
+      ) AS u(id, recency_days, frequency, monetary, score, segment)
+      WHERE c.id = u.id
+    `;
+
+    const client = await pool.connect();
+    try {
+      await client.query(queryText, params);
+    } finally {
+      client.release();
+    }
   }
 }

@@ -91,19 +91,22 @@ const CustomTooltip: React.FC<Partial<TooltipContentProps<number, string>>> = ({
 export default function CustomersPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedSegment, setSelectedSegment] = useState<string>("All");
   const [selectedCity, setSelectedCity] = useState<string>("All");
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  // Table page — only the current 50 rows
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  // Separate 500-record sample used only for charts
+  const [chartCustomers, setChartCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [chartType, setChartType] = useState<"rfm" | "city" | "segment">("rfm");
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(0);
   const itemsPerPage = 50;
-
-  useEffect(() => {
-    setCurrentPage(0);
-  }, [search, selectedSegment, selectedCity]);
+  const totalPages = Math.ceil(total / itemsPerPage);
 
   // Modal Display Toggles
   const [showAddModal, setShowAddModal] = useState(false);
@@ -125,25 +128,61 @@ export default function CustomersPage() {
 
   const CITIES_LIST = ["Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Pune"];
 
+  // Debounce search input so we don't fire a request on every keystroke
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsClient(true);
-    }, 0);
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
-    async function fetchCustomers() {
+  // Reset to page 0 whenever filters change
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [debouncedSearch, selectedSegment, selectedCity]);
+
+  // Fetch the current page from the server whenever page or filters change
+  useEffect(() => {
+    setIsClient(true);
+    async function fetchPage() {
+      setIsLoading(true);
       try {
-        const res = await fetch("/api/customers?limit=10000");
+        const params = new URLSearchParams({
+          limit: String(itemsPerPage),
+          offset: String(currentPage * itemsPerPage),
+        });
+        if (debouncedSearch) params.set("search", debouncedSearch);
+        if (selectedSegment !== "All") params.set("rfmSegment", selectedSegment);
+        if (selectedCity !== "All") params.set("city", selectedCity);
+
+        const res = await fetch(`/api/customers?${params}`);
         if (res.ok) {
           const json = await res.json();
-          if (json.data) setCustomers(json.data);
+          setCustomers(json.data ?? []);
+          setTotal(json.total ?? 0);
         }
-      } catch (error) {
-        console.error("Failed fetching live customers, falling back to mock", error);
+      } catch (err) {
+        console.error("Failed fetching customers", err);
+      } finally {
+        setIsLoading(false);
       }
     }
-    fetchCustomers();
+    fetchPage();
+  }, [currentPage, debouncedSearch, selectedSegment, selectedCity]);
 
-    return () => clearTimeout(timer);
+  // Fetch a fixed 500-customer sample for the charts — independent of table pagination.
+  // 500 scatter points gives a good distribution read without overloading the browser.
+  useEffect(() => {
+    async function fetchChartSample() {
+      try {
+        const res = await fetch("/api/customers?limit=500");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data?.length) setChartCustomers(json.data);
+        }
+      } catch (err) {
+        console.error("Chart sample fetch failed", err);
+      }
+    }
+    fetchChartSample();
   }, []);
 
   const handleAddCustomer = async (e: React.FormEvent) => {
@@ -221,33 +260,8 @@ export default function CustomersPage() {
     }
   };
 
-  // Filtered List
-  const filteredCustomers = customers.filter((customer) => {
-    const nameMatch = customer.name.toLowerCase().includes(search.toLowerCase());
-    const emailMatch = customer.email.toLowerCase().includes(search.toLowerCase());
-    const cityMatch = customer.city.toLowerCase().includes(search.toLowerCase());
-    
-    const matchesSearch = nameMatch || emailMatch || cityMatch;
-
-    const matchesSegment =
-      selectedSegment === "All" || customer.rfm_segment === selectedSegment;
-
-    const matchesCity =
-      selectedCity === "All" || customer.city === selectedCity;
-
-    return matchesSearch && matchesSegment && matchesCity;
-  });
-
-  const cities = Array.from(new Set(customers.map((c) => c.city)));
-
-  // Calculate paginated sub-list
-  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
-  const paginatedCustomers = filteredCustomers.slice(
-    currentPage * itemsPerPage,
-    (currentPage + 1) * itemsPerPage
-  );
-
-  const scatterData: ScatterPoint[] = filteredCustomers.map((c) => ({
+  // Chart scatter data uses the 500-sample, not the paginated table data
+  const scatterData: ScatterPoint[] = chartCustomers.map((c) => ({
     name: c.name,
     recency: c.rfm_recency_days ?? 0,
     frequency: c.rfm_frequency ?? 0,
@@ -370,9 +384,9 @@ export default function CustomersPage() {
                 ) : chartType === "city" ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={
-                      Array.from(new Set(filteredCustomers.map((c) => c.city || "Other"))).map((city) => ({
+                      CITIES_LIST.map((city) => ({
                         name: city.toUpperCase(),
-                        shoppers: filteredCustomers.filter((c) => c.city === city).length,
+                        shoppers: chartCustomers.filter((c) => c.city === city).length,
                       }))
                     } margin={{ top: 10, right: 30, bottom: 20, left: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" vertical={false} />
@@ -389,7 +403,7 @@ export default function CustomersPage() {
                         data={
                           ["Champion", "Loyal", "At Risk", "Lost", "New"].map((seg) => ({
                             name: seg.toUpperCase(),
-                            value: filteredCustomers.filter((c) => c.rfm_segment === seg).length,
+                            value: chartCustomers.filter((c) => c.rfm_segment === seg).length,
                           }))
                         }
                         cx="50%"
@@ -482,7 +496,7 @@ export default function CustomersPage() {
                   className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
                 >
                   <option value="All">ALL CITIES</option>
-                  {cities.map((city) => (
+                  {CITIES_LIST.map((city) => (
                     <option key={city} value={city}>
                       {city.toUpperCase()}
                     </option>
@@ -520,8 +534,14 @@ export default function CustomersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-text/10 text-xs font-medium">
-                  {paginatedCustomers.length > 0 ? (
-                    paginatedCustomers.map((customer) => (
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-text-muted font-mono animate-pulse">
+                        LOADING SHOPPERS...
+                      </td>
+                    </tr>
+                  ) : customers.length > 0 ? (
+                    customers.map((customer) => (
                       <tr key={customer.id} className="hover:bg-text/[0.02]">
                         <td className="px-6 py-4">
                           <div className="font-bold text-text">{customer.name}</div>
@@ -575,28 +595,28 @@ export default function CustomersPage() {
             </div>
 
             {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {total > 0 && (
               <div className="flex items-center justify-between border-t border-text/10 pt-4 mt-2">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-text-muted">
-                  Showing {currentPage * itemsPerPage + 1} - {Math.min((currentPage + 1) * itemsPerPage, filteredCustomers.length)} of {filteredCustomers.length} Shoppers
+                  Showing {currentPage * itemsPerPage + 1}–{Math.min((currentPage + 1) * itemsPerPage, total)} of {total.toLocaleString()} Shoppers
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
                     variant="default"
-                    disabled={currentPage === 0}
+                    disabled={currentPage === 0 || isLoading}
                     onClick={() => setCurrentPage((p) => p - 1)}
                     className="shadow-extruded hover:shadow-recessed disabled:opacity-40 disabled:pointer-events-none transition-all text-xs cursor-pointer"
                   >
                     Previous
                   </Button>
                   <span className="font-mono text-xs text-text px-2">
-                    {currentPage + 1} / {totalPages}
+                    {currentPage + 1} / {totalPages || 1}
                   </span>
                   <Button
                     size="sm"
                     variant="default"
-                    disabled={(currentPage + 1) * itemsPerPage >= filteredCustomers.length}
+                    disabled={currentPage + 1 >= totalPages || isLoading}
                     onClick={() => setCurrentPage((p) => p + 1)}
                     className="shadow-extruded hover:shadow-recessed disabled:opacity-40 disabled:pointer-events-none transition-all text-xs cursor-pointer"
                   >

@@ -299,25 +299,8 @@ export default function CampaignAnalyticsPage() {
 
           // Track replayed events to build chart data dynamically
           setReplayedEvents((prev) => [...prev, nextEvent]);
-
-          // Update displayedCampaign counters in sync with replay!
-          setDisplayedCampaign((curr) => {
-            if (!curr) return curr;
-            const copy = { ...curr };
-
-            if (nextEvent.event_type === "sent") {
-              copy.sent_count += 1;
-            } else if (nextEvent.event_type === "delivered") {
-              copy.delivered_count += 1;
-            } else if (nextEvent.event_type === "opened") {
-              copy.open_count += 1;
-            } else if (nextEvent.event_type === "clicked") {
-              copy.click_count += 1;
-            } else if (nextEvent.event_type === "failed") {
-              copy.failed_count += 1;
-            }
-            return copy;
-          });
+          // Stat counters are owned by the DB poll — no local increment here
+          // to avoid double-counting with the 1-second stats refresh.
         }
       } else {
         clearInterval(interval);
@@ -353,25 +336,7 @@ export default function CampaignAnalyticsPage() {
               timestamp: new Date().toLocaleTimeString(),
             };
 
-            // Increment displayedCampaign counters immediately for live events!
-            setDisplayedCampaign((curr) => {
-              if (!curr) return curr;
-              const copy = { ...curr };
-
-              if (newEvent.event_type === "sent") {
-                copy.sent_count += 1;
-              } else if (newEvent.event_type === "delivered") {
-                copy.delivered_count += 1;
-              } else if (newEvent.event_type === "opened") {
-                copy.open_count += 1;
-              } else if (newEvent.event_type === "clicked") {
-                copy.click_count += 1;
-              } else if (newEvent.event_type === "failed") {
-                copy.failed_count += 1;
-              }
-              return copy;
-            });
-
+            // Stats bar is driven by the DB poll — SSE only drives the ticker list.
             return [newEvent, ...prev.slice(0, 29)];
           });
         }
@@ -407,15 +372,10 @@ export default function CampaignAnalyticsPage() {
             }
             setDisplayedCampaign((curr) => {
               if (!curr) return json.data;
-              // Synchronize chart data and metadata from database, but preserve local counter progress
+              // DB is the sole source of truth for stat counters \u2014 apply directly.
               return {
                 ...curr,
                 ...json.data,
-                sent_count: Math.max(curr.sent_count, json.data.sent_count),
-                delivered_count: Math.max(curr.delivered_count, json.data.delivered_count),
-                open_count: Math.max(curr.open_count, json.data.open_count),
-                click_count: Math.max(curr.click_count, json.data.click_count),
-                failed_count: Math.max(curr.failed_count, json.data.failed_count),
               };
             });
           }

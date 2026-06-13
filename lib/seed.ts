@@ -16,6 +16,7 @@
 
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { faker } from "@faker-js/faker";
 import {
   pool,
@@ -105,46 +106,80 @@ async function seed() {
   await pool.query("TRUNCATE events, communications, campaigns, segments, orders, customers CASCADE");
 
   // 3. Seed Customers
-  console.log("Seeding 500 customer records...");
+  console.log("Generating 50,000 customer UUIDs...");
   const customerIds: string[] = [];
-  for (let i = 0; i < 500; i++) {
-    const { name, gender } = generateIndianNameAndGender();
-    const city = faker.helpers.arrayElement(CITIES);
-    const email = `${name.toLowerCase().replace(/\s+/g, ".")}.${i + 1}@example.com`;
-    const phone = `+91 ${faker.helpers.arrayElement(["9", "8", "7", "6"])}${faker.string.numeric(9)}`;
+  for (let i = 0; i < 50000; i++) {
+    customerIds.push(crypto.randomUUID());
+  }
 
-    const customer = await upsertCustomer({
-      name,
-      email,
-      phone,
-      city,
-      gender,
+  console.log("Seeding 50,000 customer records in chunks of 5,000...");
+  const chunkSize = 5000;
+  for (let i = 0; i < customerIds.length; i += chunkSize) {
+    const chunkIds = customerIds.slice(i, i + chunkSize);
+    const valuePlaceholders: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    chunkIds.forEach((id, index) => {
+      const globalIdx = i + index;
+      const { name, gender } = generateIndianNameAndGender();
+      const city = faker.helpers.arrayElement(CITIES);
+      const email = `${name.toLowerCase().replace(/\s+/g, ".")}.${globalIdx + 1}@example.com`;
+      const phone = `+91 ${faker.helpers.arrayElement(["9", "8", "7", "6"])}${faker.string.numeric(9)}`;
+
+      valuePlaceholders.push(`($${paramIdx}::uuid, $${paramIdx+1}::text, $${paramIdx+2}::text, $${paramIdx+3}::text, $${paramIdx+4}::text, $${paramIdx+5}::text)`);
+      params.push(id, name, email, phone, city, gender);
+      paramIdx += 6;
     });
-    customerIds.push(customer.id);
+
+    const queryText = `
+      INSERT INTO customers (id, name, email, phone, city, gender)
+      VALUES ${valuePlaceholders.join(", ")}
+      ON CONFLICT (email) DO NOTHING
+    `;
+
+    await pool.query(queryText, params);
+    if ((i + chunkSize) % 10000 === 0 || i + chunkSize >= customerIds.length) {
+      console.log(`  Inserted ${Math.min(i + chunkSize, customerIds.length)} / 50,000 customers...`);
+    }
   }
 
   // 4. Seed Orders
-  console.log("Seeding 2500 customer orders with festive season seasonality...");
-  for (let i = 0; i < 2500; i++) {
-    const customerId = faker.helpers.arrayElement(customerIds);
-    const orderDate = generateOrderDate();
-    const channel = faker.helpers.arrayElement(CHANNELS);
-    const orderAmount = parseFloat(faker.commerce.price({ min: 200, max: 8000 }));
+  console.log("Seeding 100,000 customer orders in chunks of 5,000...");
+  const totalOrders = 100000;
+  for (let i = 0; i < totalOrders; i += chunkSize) {
+    const currentChunkSize = Math.min(chunkSize, totalOrders - i);
+    const valuePlaceholders: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
 
-    // Items array
-    const items = Array.from({ length: faker.number.int({ min: 1, max: 4 }) }, () => ({
-      name: faker.commerce.productName(),
-      price: parseFloat(faker.commerce.price({ min: 100, max: 2000 })),
-      qty: faker.number.int({ min: 1, max: 3 }),
-    }));
+    for (let j = 0; j < currentChunkSize; j++) {
+      const orderId = crypto.randomUUID();
+      const customerId = faker.helpers.arrayElement(customerIds);
+      const orderDate = generateOrderDate();
+      const channel = faker.helpers.arrayElement(CHANNELS);
+      const orderAmount = parseFloat(faker.commerce.price({ min: 200, max: 8000 }));
 
-    await insertOrder({
-      customer_id: customerId,
-      amount: orderAmount,
-      channel: channel as any,
-      items,
-      created_at: orderDate.toISOString(),
-    });
+      const items = [{
+        name: faker.commerce.productName(),
+        price: orderAmount,
+        qty: 1,
+      }];
+
+      valuePlaceholders.push(`($${paramIdx}::uuid, $${paramIdx+1}::uuid, $${paramIdx+2}::decimal, $${paramIdx+3}::text, $${paramIdx+4}::jsonb, $${paramIdx+5}::timestamptz)`);
+      params.push(orderId, customerId, orderAmount, channel, JSON.stringify(items), orderDate.toISOString());
+      paramIdx += 6;
+    }
+
+    const queryText = `
+      INSERT INTO orders (id, customer_id, amount, channel, items, created_at)
+      VALUES ${valuePlaceholders.join(", ")}
+    `;
+
+    await pool.query(queryText, params);
+    if ((i + chunkSize) % 10000 === 0 || i + chunkSize >= totalOrders) {
+      console.log(`  Inserted ${Math.min(i + chunkSize, totalOrders)} / 100,000 orders...`);
+    }
   }
 
   // 5. Pre-compute RFM scores
@@ -251,8 +286,9 @@ async function seed() {
   });
 
   // Seed communications and events for Campaign 1 (WhatsApp, highly engaging)
-  console.log(`Generating delivery simulator callbacks for ${championsCustomers.length} Champions...`);
-  for (const customer of championsCustomers) {
+  const championsToSeed = championsCustomers.slice(0, 200);
+  console.log(`Generating delivery simulator callbacks for ${championsToSeed.length} Champions...`);
+  for (const customer of championsToSeed) {
     const statusRoll = Math.random();
     let status: "sent" | "delivered" | "opened" | "clicked" | "failed" = "sent";
     
@@ -295,8 +331,9 @@ async function seed() {
   }
 
   // Seed communications and events for Campaign 2 (SMS, lower engaging)
-  console.log(`Generating delivery simulator callbacks for ${lapsedCustomers.length} Lapsed shoppers...`);
-  for (const customer of lapsedCustomers) {
+  const lapsedToSeed = lapsedCustomers.slice(0, 200);
+  console.log(`Generating delivery simulator callbacks for ${lapsedToSeed.length} Lapsed shoppers...`);
+  for (const customer of lapsedToSeed) {
     const statusRoll = Math.random();
     let status: "sent" | "delivered" | "opened" | "clicked" | "failed" = "sent";
     

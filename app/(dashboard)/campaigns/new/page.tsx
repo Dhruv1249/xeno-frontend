@@ -13,7 +13,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,8 @@ import { MOCK_TARGET_SEGMENTS } from "@/lib/mockData";
  */
 export default function NewCampaignPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const draftId = searchParams ? searchParams.get("draft") : null;
   
   // Wizard steps: 1 (Template), 2 (Audience), 3 (Channel), 4 (Compose)
   const [step, setStep] = useState(1);
@@ -44,6 +46,56 @@ export default function NewCampaignPage() {
   const [selectedTone, setSelectedTone] = useState<"friendly" | "urgent" | "exclusive">("friendly");
   const [emailSubject, setEmailSubject] = useState("");
   const [manualInstructions, setManualInstructions] = useState("");
+
+  // Load draft campaign details if we are in Edit/Resume mode
+  useEffect(() => {
+    if (!draftId) return;
+
+    async function fetchDraftDetails() {
+      try {
+        const res = await fetch(`/api/campaigns/${draftId}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            const camp = json.data;
+            setCampaignName(camp.name);
+            setTargetSegmentId(camp.segment_id);
+            setSelectedChannel(camp.channel);
+            
+            // Extract subject from message_template if channel is email
+            if (camp.channel === "email" && camp.message_template.startsWith("Subject: ")) {
+              const match = camp.message_template.match(/^Subject:\s*(.*)\n\n([\s\S]*)$/);
+              if (match) {
+                setEmailSubject(match[1]);
+                setMessageText(match[2]);
+              } else {
+                setMessageText(camp.message_template);
+              }
+            } else {
+              setMessageText(camp.message_template);
+            }
+
+            // Determine target mode
+            const allSeg = segments.find(s => s.name === "All Shoppers");
+            if (allSeg && camp.segment_id === allSeg.id) {
+              setTargetMode("all");
+            } else {
+              setTargetMode("segment");
+            }
+
+            // Jump straight to the compose step (step 4) since details are loaded
+            setStep(4);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load draft campaign details", err);
+      }
+    }
+
+    if (segments.length > 0) {
+      fetchDraftDetails();
+    }
+  }, [draftId, segments]);
 
   // Load real segments from database API
   useEffect(() => {
@@ -269,8 +321,11 @@ export default function NewCampaignPage() {
         status: status === "running" ? "draft" : "scheduled",
       };
 
-      const res = await fetch("/api/campaigns", {
-        method: "POST",
+      const url = draftId ? `/api/campaigns/${draftId}` : "/api/campaigns";
+      const method = draftId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });

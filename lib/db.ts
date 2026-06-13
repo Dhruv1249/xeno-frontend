@@ -14,12 +14,18 @@ import { Pool } from "pg";
 import { Customer, Order, Segment, Campaign, Communication } from "../types";
 
 // Setup connection pool. Fallback to local docker postgres connection if DATABASE_URL is not set.
+// max=30: local Postgres on Docker with 16GB/14 cores handles 30 concurrent connections easily.
+// CockroachDB Serverless users should lower this to 5.
 const connectionString = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/xeno_db";
 
 export const pool = new Pool({
   connectionString,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined,
+  max: 30,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
+
 
 /**
  * Executes a raw parameterized query against the database.
@@ -333,9 +339,10 @@ export async function getCampaigns(): Promise<Campaign[]> {
   const queryText = `
     SELECT c.id, c.name, c.segment_id, s.name as segment_name, c.channel, c.message_template,
            c.status, c.scheduled_at, c.sent_at, c.completed_at, c.ai_recommendation, c.ai_summary, c.created_at,
-           COUNT(CASE WHEN comm.id IS NOT NULL THEN 1 END) as sent_count,
+           -- Only count comms that have progressed past queued (Rust has confirmed pickup)
+           COUNT(CASE WHEN comm.status IN ('sent', 'delivered', 'opened', 'clicked', 'failed') THEN 1 END) as sent_count,
            COUNT(CASE WHEN comm.status IN ('delivered', 'opened', 'clicked') THEN 1 END) as delivered_count,
-           COUNT(CASE WHEN comm.status = 'opened' OR comm.status = 'clicked' THEN 1 END) as open_count,
+           COUNT(CASE WHEN comm.status IN ('opened', 'clicked') THEN 1 END) as open_count,
            COUNT(CASE WHEN comm.status = 'clicked' THEN 1 END) as click_count,
            COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count
     FROM campaigns c
@@ -362,9 +369,10 @@ export async function getCampaignById(id: string): Promise<Campaign | null> {
   const queryText = `
     SELECT c.id, c.name, c.segment_id, s.name as segment_name, c.channel, c.message_template,
            c.status, c.scheduled_at, c.sent_at, c.completed_at, c.ai_recommendation, c.ai_summary, c.created_at,
-           COUNT(CASE WHEN comm.id IS NOT NULL THEN 1 END) as sent_count,
+           -- Only count comms that have progressed past queued (Rust has confirmed pickup)
+           COUNT(CASE WHEN comm.status IN ('sent', 'delivered', 'opened', 'clicked', 'failed') THEN 1 END) as sent_count,
            COUNT(CASE WHEN comm.status IN ('delivered', 'opened', 'clicked') THEN 1 END) as delivered_count,
-           COUNT(CASE WHEN comm.status = 'opened' OR comm.status = 'clicked' THEN 1 END) as open_count,
+           COUNT(CASE WHEN comm.status IN ('opened', 'clicked') THEN 1 END) as open_count,
            COUNT(CASE WHEN comm.status = 'clicked' THEN 1 END) as click_count,
            COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count
     FROM campaigns c
@@ -403,6 +411,36 @@ export async function insertCampaign(campaign: Partial<Campaign>): Promise<Campa
     campaign.status || null,
     campaign.scheduled_at || null,
     campaign.ai_recommendation ? JSON.stringify(campaign.ai_recommendation) : null,
+  ];
+  const rows = await executeQuery<Campaign>(queryText, params);
+  return rows[0];
+}
+
+/**
+ * Updates an existing campaign record.
+ */
+export async function updateCampaign(id: string, campaign: Partial<Campaign>): Promise<Campaign> {
+  const queryText = `
+    UPDATE campaigns
+    SET name = COALESCE($1, name),
+        segment_id = COALESCE($2, segment_id),
+        channel = COALESCE($3, channel),
+        message_template = COALESCE($4, message_template),
+        status = COALESCE($5, status),
+        scheduled_at = COALESCE($6, scheduled_at),
+        ai_recommendation = COALESCE($7, ai_recommendation)
+    WHERE id = $8
+    RETURNING *
+  `;
+  const params = [
+    campaign.name || null,
+    campaign.segment_id || null,
+    campaign.channel || null,
+    campaign.message_template || null,
+    campaign.status || null,
+    campaign.scheduled_at || null,
+    campaign.ai_recommendation ? JSON.stringify(campaign.ai_recommendation) : null,
+    id,
   ];
   const rows = await executeQuery<Campaign>(queryText, params);
   return rows[0];
@@ -639,16 +677,20 @@ export async function getCommunicationWithCustomerName(id: string): Promise<{
  * and updates campaign status to completed if true.
  */
 export async function checkAndUpdateCampaignCompletion(campaignId: string): Promise<void> {
+  // A campaign is complete when no communications remain in 'queued' status.
+  // Comms end their lifecycle at: sent (20%), delivered (42%), failed (10%),
+  // opened (21%), clicked (7%). Requiring delivered/failed/opened/clicked
+  // excluded the ~20% that stop at 'sent', so total never equalled completed.
   const queryText = `
     SELECT COUNT(*) as total,
-           COUNT(CASE WHEN status IN ('delivered', 'failed', 'opened', 'clicked') THEN 1 END) as completed
+           COUNT(CASE WHEN status = 'queued' THEN 1 END) as still_queued
     FROM communications
     WHERE campaign_id = $1
   `;
-  const rows = await executeQuery<{ total: string; completed: string }>(queryText, [campaignId]);
+  const rows = await executeQuery<{ total: string; still_queued: string }>(queryText, [campaignId]);
   const total = Number(rows[0]?.total || 0);
-  const completed = Number(rows[0]?.completed || 0);
-  if (total > 0 && total === completed) {
+  const stillQueued = Number(rows[0]?.still_queued || 0);
+  if (total > 0 && stillQueued === 0) {
     await updateCampaignStatus(campaignId, "completed", undefined, new Date());
   }
 }
