@@ -12,6 +12,7 @@
 
 import { Pool } from "pg";
 import { Customer, Order, Segment, Campaign, Communication } from "../types";
+import { buildSegmentSql } from "./segment-engine";
 
 // Setup connection pool. Fallback to local docker postgres connection if DATABASE_URL is not set.
 // max=30: local Postgres on Docker with 16GB/14 cores handles 30 concurrent connections easily.
@@ -60,6 +61,71 @@ export async function runSchemaMigration(migrationSql: string): Promise<void> {
 }
 
 /**
+ * Appends segment filters to a query, supporting both RFM categories
+ * and database custom segments. Multiple selected segments are OR-ed.
+ *
+ * @param rfmSegment Comma-separated list of selected segments or IDs
+ * @param params Parameter array to append values to
+ * @param paramIdx Current SQL placeholder parameter index
+ */
+async function applySegmentFilters(
+  rfmSegment: string,
+  params: unknown[],
+  paramIdx: number
+): Promise<{ clause: string; paramIdx: number }> {
+  if (!rfmSegment || rfmSegment === "All") {
+    return { clause: "", paramIdx };
+  }
+
+  const filterTokens = rfmSegment.split(",").map(s => s.trim()).filter(Boolean);
+  if (filterTokens.length === 0 || filterTokens.includes("All")) {
+    return { clause: "", paramIdx };
+  }
+
+  const orClauses: string[] = [];
+
+  // 1. Handle RFM segments (e.g. Champion, Loyal, etc.)
+  const rfmTokens = filterTokens.filter(t => ["Champion", "Loyal", "At Risk", "Lost", "New", "Others"].includes(t));
+  if (rfmTokens.length > 0) {
+    orClauses.push(`rfm_segment = ANY($${paramIdx}::text[])`);
+    params.push(rfmTokens);
+    paramIdx++;
+  }
+
+  // 2. Handle Custom Segments by UUID
+  const customSegmentIds = filterTokens.filter(t => !["Champion", "Loyal", "At Risk", "Lost", "New", "Others", "All"].includes(t));
+  if (customSegmentIds.length > 0) {
+    const customSegments = await executeQuery<Segment>(
+      `SELECT id, filter_rules FROM segments WHERE id = ANY($1::uuid[])`,
+      [customSegmentIds]
+    );
+    for (const seg of customSegments) {
+      const segmentSql = buildSegmentSql(seg.filter_rules);
+      if (segmentSql.whereClause && segmentSql.whereClause !== "1=1") {
+        let adjustedClause = segmentSql.whereClause;
+        // Dynamically adjust placeholder indexes (e.g. $1 -> $3, $2 -> $4)
+        adjustedClause = adjustedClause.replace(/\$(\d+)/g, (match, num) => {
+          const originalNum = parseInt(num, 10);
+          return `$${paramIdx + originalNum - 1}`;
+        });
+        orClauses.push(`(${adjustedClause})`);
+        params.push(...segmentSql.params);
+        paramIdx += segmentSql.params.length;
+      }
+    }
+  }
+
+  if (orClauses.length > 0) {
+    return {
+      clause: ` AND (${orClauses.join(" OR ")})`,
+      paramIdx,
+    };
+  }
+
+  return { clause: "", paramIdx };
+}
+
+/**
  * Returns matching customers with pagination and optional filters.
  */
 export async function getCustomers(
@@ -84,11 +150,9 @@ export async function getCustomers(
     paramIdx++;
   }
 
-  if (rfmSegment !== "All") {
-    queryText += ` AND rfm_segment = $${paramIdx}`;
-    params.push(rfmSegment);
-    paramIdx++;
-  }
+  const segmentResult = await applySegmentFilters(rfmSegment, params, paramIdx);
+  queryText += segmentResult.clause;
+  paramIdx = segmentResult.paramIdx;
 
   if (city !== "All") {
     queryText += ` AND city = $${paramIdx}`;
@@ -128,11 +192,9 @@ export async function getCustomersCount(
     paramIdx++;
   }
 
-  if (rfmSegment !== "All") {
-    queryText += ` AND rfm_segment = $${paramIdx}`;
-    params.push(rfmSegment);
-    paramIdx++;
-  }
+  const segmentResult = await applySegmentFilters(rfmSegment, params, paramIdx);
+  queryText += segmentResult.clause;
+  paramIdx = segmentResult.paramIdx;
 
   if (city !== "All") {
     queryText += ` AND city = $${paramIdx}`;
@@ -569,7 +631,7 @@ export async function getDashboardStats(): Promise<{
       COALESCE(
         (COUNT(CASE WHEN status IN ('opened', 'clicked') THEN 1 END)::float /
         NULLIF(COUNT(CASE WHEN status != 'failed' THEN 1 END), 0)),
-        0.428
+        0
       ) * 100 as rate
     FROM communications
   `);

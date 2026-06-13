@@ -18,8 +18,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Eye, RefreshCw, Plus, Upload } from "lucide-react";
-import { Customer } from "@/types";
+import { Search, MapPin, Eye, RefreshCw, Plus, Upload, Filter, ChevronDown } from "lucide-react";
+import { Customer, Segment } from "@/types";
 import { MOCK_CUSTOMERS } from "@/lib/mockData";
 import {
   ScatterChart,
@@ -45,6 +45,7 @@ const SEGMENT_COLORS: Record<string, string> = {
   "At Risk": "#FE9900", // Yellow
   Lost: "#FF2157",      // Red
   New: "#8B5CF6",       // Purple
+  Others: "#64748B",    // Slate — catch-all for customers outside the 5 primary segments
 };
 
 interface ScatterPoint {
@@ -92,7 +93,10 @@ export default function CustomersPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedSegment, setSelectedSegment] = useState<string>("All");
+  const [selectedSegments, setSelectedSegments] = useState<string[]>([]);
+  const [dbSegments, setDbSegments] = useState<Segment[]>([]);
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const [filterSearch, setFilterSearch] = useState("");
   const [selectedCity, setSelectedCity] = useState<string>("All");
   // Table page — only the current 50 rows
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -102,6 +106,15 @@ export default function CustomersPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [chartType, setChartType] = useState<"rfm" | "city" | "segment">("rfm");
+
+  const toggleSegment = (seg: string) => {
+    setSelectedSegments((prev) => {
+      if (prev.includes(seg)) {
+        return prev.filter((s) => s !== seg);
+      }
+      return [...prev, seg];
+    });
+  };
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(0);
@@ -137,7 +150,23 @@ export default function CustomersPage() {
   // Reset to page 0 whenever filters change
   useEffect(() => {
     setCurrentPage(0);
-  }, [debouncedSearch, selectedSegment, selectedCity]);
+  }, [debouncedSearch, selectedSegments, selectedCity]);
+
+  // Fetch custom segments from the database
+  useEffect(() => {
+    async function loadSegments() {
+      try {
+        const res = await fetch("/api/segments");
+        if (res.ok) {
+          const json = await res.json();
+          setDbSegments(json.data ?? []);
+        }
+      } catch (err) {
+        console.error("Failed loading segments", err);
+      }
+    }
+    loadSegments();
+  }, []);
 
   // Fetch the current page from the server whenever page or filters change
   useEffect(() => {
@@ -150,7 +179,11 @@ export default function CustomersPage() {
           offset: String(currentPage * itemsPerPage),
         });
         if (debouncedSearch) params.set("search", debouncedSearch);
-        if (selectedSegment !== "All") params.set("rfmSegment", selectedSegment);
+        if (selectedSegments.length > 0) {
+          params.set("rfmSegment", selectedSegments.join(","));
+        } else {
+          params.set("rfmSegment", "All");
+        }
         if (selectedCity !== "All") params.set("city", selectedCity);
 
         const res = await fetch(`/api/customers?${params}`);
@@ -166,7 +199,7 @@ export default function CustomersPage() {
       }
     }
     fetchPage();
-  }, [currentPage, debouncedSearch, selectedSegment, selectedCity]);
+  }, [currentPage, debouncedSearch, selectedSegments, selectedCity]);
 
   // Fetch a fixed 500-customer sample for the charts — independent of table pagination.
   // 500 scatter points gives a good distribution read without overloading the browser.
@@ -268,6 +301,10 @@ export default function CustomersPage() {
     monetary: Number(c.rfm_monetary) ?? 0,
     segment: c.rfm_segment ?? "Others",
   }));
+
+  const filteredDbSegments = dbSegments.filter((seg) =>
+    seg.name.toLowerCase().includes(filterSearch.toLowerCase())
+  );
 
   const handleClusterClick = (data: unknown) => {
     const point = data as ScatterPoint;
@@ -401,7 +438,7 @@ export default function CustomersPage() {
                     <PieChart>
                       <Pie
                         data={
-                          ["Champion", "Loyal", "At Risk", "Lost", "New"].map((seg) => ({
+                          ["Champion", "Loyal", "At Risk", "Lost", "New", "Others"].map((seg) => ({
                             name: seg.toUpperCase(),
                             value: chartCustomers.filter((c) => c.rfm_segment === seg).length,
                           }))
@@ -414,7 +451,7 @@ export default function CustomersPage() {
                         fill="#8884d8"
                         dataKey="value"
                       >
-                        {["Champion", "Loyal", "At Risk", "Lost", "New"].map((seg, index) => (
+                        {["Champion", "Loyal", "At Risk", "Lost", "New", "Others"].map((seg, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={SEGMENT_COLORS[seg] || "#1E2938"}
@@ -433,31 +470,16 @@ export default function CustomersPage() {
               )}
             </div>
 
-            {/* Segment Legend / Click Filters */}
+            {/* Segment Legend */}
             <div className="flex flex-wrap items-center gap-4 justify-center mt-4 border-t border-text/5 pt-4">
               <span className="font-sans font-bold text-[10px] uppercase tracking-wider text-text-muted mr-2">
-                Filter / Target Segments:
+                RFM Cohorts:
               </span>
               {Object.keys(SEGMENT_COLORS).map((seg) => (
-                <button
-                  key={seg}
-                  onClick={() => setSelectedSegment(selectedSegment === seg ? "All" : seg)}
-                  className={`
-                    flex items-center gap-2 px-3 py-1 rounded border transition-all text-xs font-bold uppercase tracking-wider cursor-pointer
-                    ${
-                      selectedSegment === seg
-                        ? "shadow-recessed"
-                        : "shadow-extruded hover:shadow-extruded-hover"
-                    }
-                  `}
-                  style={{
-                    borderColor: selectedSegment === seg ? SEGMENT_COLORS[seg] : "rgba(0,0,0,0.05)",
-                    color: SEGMENT_COLORS[seg],
-                  }}
-                >
+                <div key={seg} className="flex items-center gap-1.5 text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SEGMENT_COLORS[seg] }} />
                   <span>{seg}</span>
-                </button>
+                </div>
               ))}
             </div>
           </CardContent>
@@ -487,28 +509,120 @@ export default function CustomersPage() {
                 />
               </div>
 
-              {/* City Filter */}
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <MapPin className="w-4 h-4 text-text-muted" />
-                <select
-                  value={selectedCity}
-                  onChange={(e) => setSelectedCity(e.target.value)}
-                  className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
-                >
-                  <option value="All">ALL CITIES</option>
-                  {CITIES_LIST.map((city) => (
-                    <option key={city} value={city}>
-                      {city.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
+              {/* City & Segment Filters */}
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-text-muted" />
+                  <select
+                    value={selectedCity}
+                    onChange={(e) => setSelectedCity(e.target.value)}
+                    className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
+                  >
+                    <option value="All">ALL CITIES</option>
+                    {CITIES_LIST.map((city) => (
+                      <option key={city} value={city}>
+                        {city.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                {(selectedSegment !== "All" || selectedCity !== "All" || search !== "") && (
+                {/* Segments Dropdown */}
+                <div className="relative">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                    leftIcon={<Filter className="w-3.5 h-3.5" />}
+                    rightIcon={<ChevronDown className="w-3 h-3 ml-1" />}
+                    className="font-mono text-xs uppercase tracking-wider cursor-pointer shadow-extruded"
+                  >
+                    SEGMENTS ({selectedSegments.length})
+                  </Button>
+
+                  {isFilterDropdownOpen && (
+                    <>
+                      {/* Click outside backdrop */}
+                      <div
+                        className="fixed inset-0 z-40 bg-transparent"
+                        onClick={() => setIsFilterDropdownOpen(false)}
+                      />
+
+                      {/* Dropdown Card */}
+                      <div className="absolute right-0 mt-2 w-72 bg-surface border border-text/15 rounded-lg shadow-xl z-50 p-3.5 space-y-3">
+                        <div className="text-[11px] font-sans font-bold text-text-muted uppercase tracking-wider border-b border-text/5 pb-1">
+                          SELECT SEGMENT FILTERS
+                        </div>
+
+                        {/* Search Segments inside Dropdown */}
+                        <div className="relative">
+                          <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                            <Search className="h-3 w-3 text-text-muted" />
+                          </span>
+                          <input
+                            type="text"
+                            placeholder="SEARCH SEGMENTS..."
+                            value={filterSearch}
+                            onChange={(e) => setFilterSearch(e.target.value)}
+                            className="w-full bg-surface border border-text/10 rounded py-1 pl-7 pr-3 text-[10px] font-mono tracking-wider outline-none focus:border-primary"
+                          />
+                        </div>
+
+                        {/* Scrollable checklist */}
+                        <div className="max-h-52 overflow-y-auto space-y-2 font-sans pr-1">
+                          {filteredDbSegments.length > 0 ? (
+                            <div className="space-y-1">
+                              {filteredDbSegments.map((seg) => {
+                                const isChecked = selectedSegments.includes(seg.id);
+                                return (
+                                  <label
+                                    key={seg.id}
+                                    className="flex items-center gap-2 text-xs p-1.5 rounded cursor-pointer transition-colors hover:bg-text/[0.04]"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => toggleSegment(seg.id)}
+                                      className="rounded border-text/20 text-primary focus:ring-primary w-3.5 h-3.5 cursor-pointer"
+                                    />
+                                    <span className="font-semibold text-text truncate max-w-[190px]">{seg.name}</span>
+                                    {seg.customer_count !== undefined && (
+                                      <span className="text-[10px] text-text-muted ml-auto font-mono">({seg.customer_count})</span>
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-center text-text-muted text-[10px] py-4 font-mono">
+                              NO CUSTOM SEGMENTS FOUND
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Dropdown footer summary */}
+                        <div className="flex items-center justify-between border-t border-text/5 pt-2 text-[9px] text-text-muted font-mono">
+                          <span>{selectedSegments.length} ACTIVE FILTERS</span>
+                          {selectedSegments.length > 0 && (
+                            <button
+                              onClick={() => setSelectedSegments([])}
+                              className="text-primary hover:underline font-bold cursor-pointer uppercase"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {(selectedSegments.length > 0 || selectedCity !== "All" || search !== "") && (
                   <Button
                     size="sm"
                     variant="default"
                     onClick={() => {
-                      setSelectedSegment("All");
+                      setSelectedSegments([]);
                       setSelectedCity("All");
                       setSearch("");
                     }}
@@ -520,6 +634,43 @@ export default function CustomersPage() {
               </div>
             </div>
 
+            {/* Active Filters Pills */}
+            {selectedSegments.length > 0 && (
+              <div className="flex flex-wrap gap-2 items-center px-1">
+                <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                  Active segment filters:
+                </span>
+                {selectedSegments.map((segId) => {
+                  const isRfm = ["Champion", "Loyal", "At Risk", "Lost", "New", "Others"].includes(segId);
+                  const name = isRfm ? segId : dbSegments.find(s => s.id === segId)?.name || "Custom Segment";
+                  return (
+                    <Badge
+                      key={segId}
+                      variant={
+                        isRfm
+                          ? segId === "Champion"
+                            ? "primary"
+                            : segId === "Loyal"
+                            ? "success"
+                            : segId === "At Risk"
+                            ? "warning"
+                            : segId === "Lost"
+                            ? "danger"
+                            : "default"
+                          : "default"
+                      }
+                      type="recessed"
+                      className="flex items-center gap-1 cursor-pointer hover:bg-red-500 hover:text-white transition-colors"
+                      onClick={() => toggleSegment(segId)}
+                    >
+                      <span>{name}</span>
+                      <span className="font-bold text-[9px]">×</span>
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Table */}
             <div className="overflow-x-auto border border-text/10 rounded-lg bg-surface shadow-recessed">
               <table className="min-w-full divide-y divide-text/10 text-left font-sans">
@@ -527,7 +678,7 @@ export default function CustomersPage() {
                   <tr>
                     <th className="px-6 py-3">Customer Name</th>
                     <th className="px-6 py-3">City</th>
-                    <th className="px-6 py-3">Segment</th>
+                    <th className="px-6 py-3">RFM Cohort</th>
                     <th className="px-6 py-3">Recency / Freq</th>
                     <th className="px-6 py-3 text-right">Monetary Spend</th>
                     <th className="px-6 py-3 text-center">Action</th>

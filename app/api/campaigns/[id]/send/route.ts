@@ -135,7 +135,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     const channelServiceUrl = process.env.CHANNEL_SERVICE_URL || "http://localhost:8080";
     const host = req.headers.get("host") || "localhost:3000";
     const protocol = req.headers.get("x-forwarded-proto") || "http";
-    const callbackUrl = `${protocol}://${host}/api/receipts`;
+    let callbackUrl = `${protocol}://${host}/api/receipts`;
+
+    // If the channel simulator is running inside a Docker container (standard local dev),
+    // it cannot resolve "localhost" back to the host machine. We dynamically rewrite
+    // localhost/127.0.0.1 to "host.docker.internal" in the callback URL.
+    if (callbackUrl.includes("localhost") || callbackUrl.includes("127.0.0.1")) {
+      callbackUrl = callbackUrl
+        .replace("localhost", "host.docker.internal")
+        .replace("127.0.0.1", "host.docker.internal");
+    }
 
     const CHUNK_SIZE = 5000;
     const chunks: (typeof communicationsList)[] = [];

@@ -27,6 +27,11 @@ export default function DashboardPage() {
   const [brief, setBrief] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>("");
+  const [dashStats, setDashStats] = useState<{
+    totalCustomers: number;
+    activeCampaigns: number;
+    avgOpenRate: number;
+  } | null>(null);
 
   useEffect(() => {
     // Set format time client side using deferred task to avoid cascading renders warning
@@ -55,20 +60,31 @@ export default function DashboardPage() {
           localStorage.setItem("crm_brief_text", json.brief);
           localStorage.setItem("crm_brief_date", today);
         } else {
-          // Mock fallback brief if API fails or isn't built yet by backend
-          const fallbackText = "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today.";
-          setBrief(fallbackText);
-          localStorage.setItem("crm_brief_text", fallbackText);
-          localStorage.setItem("crm_brief_date", today);
+          setBrief("Unable to generate morning brief right now. Check your campaigns and segments for today's priorities.");
         }
       } catch (error) {
         console.error(error);
-        const fallbackText = "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today.";
-        setBrief(fallbackText);
-        localStorage.setItem("crm_brief_text", fallbackText);
-        localStorage.setItem("crm_brief_date", today);
+        setBrief("Unable to generate morning brief right now. Check your campaigns and segments for today's priorities.");
       } finally {
         setLoading(false);
+      }
+    }
+
+    async function fetchStats() {
+      try {
+        const res = await fetch("/api/dashboard/stats");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            setDashStats({
+              totalCustomers: json.data.totalCustomers,
+              activeCampaigns: json.data.activeCampaigns,
+              avgOpenRate: json.data.avgOpenRate,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load dashboard stats", err);
       }
     }
 
@@ -79,26 +95,28 @@ export default function DashboardPage() {
       fetchBrief();
     }
 
+    fetchStats();
+
     return () => clearTimeout(timeTimer);
   }, []);
 
   const stats = [
     {
       title: "Total Shoppers",
-      value: "500",
-      description: "Indexed across 6 target cities",
+      value: dashStats ? dashStats.totalCustomers.toLocaleString("en-IN") : "—",
+      description: "Registered across all cities",
       icon: Users,
     },
     {
       title: "Active Campaigns",
-      value: "2",
-      description: "1 WhatsApp, 1 SMS currently running",
+      value: dashStats ? String(dashStats.activeCampaigns) : "—",
+      description: "Running or scheduled right now",
       icon: MessageSquare,
     },
     {
       title: "Avg Open Rate",
-      value: "42.8%",
-      description: "+4.2% higher than retail baseline",
+      value: dashStats ? `${dashStats.avgOpenRate.toFixed(1)}%` : "—",
+      description: "Across all delivered communications",
       icon: Sparkles,
     },
   ];
