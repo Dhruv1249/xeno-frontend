@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CustomerProfile, Order, Communication } from "@/types";
 import { MOCK_PROFILES } from "@/lib/mockData";
-import { Sparkles, Calendar, ArrowLeft, ShoppingBag, Send, AlertTriangle, Check, CheckCheck, XCircle } from "lucide-react";
+import { Sparkles, Calendar, ArrowLeft, ShoppingBag, Send, AlertTriangle, Check, CheckCheck, XCircle, Plus, Trash2, X } from "lucide-react";
 
 /**
  * Customer Profile screen featuring order history and campaign receipts.
@@ -32,6 +32,61 @@ export default function CustomerProfilePage() {
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Add Order States
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+  const [channel, setChannel] = useState<"online" | "store" | "app">("online");
+  const [items, setItems] = useState<{ name: string; price: number; qty: number }[]>([
+    { name: "", price: 0, qty: 1 }
+  ]);
+  const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [orderError, setOrderError] = useState("");
+
+  const handleAddOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOrderError("");
+
+    if (items.some(it => !it.name.trim() || it.price <= 0 || it.qty <= 0)) {
+      setOrderError("Please fill in all item fields with valid names, prices, and quantities.");
+      return;
+    }
+
+    setSubmittingOrder(true);
+    try {
+      const totalAmount = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const res = await fetch(`/api/customers/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          amount: totalAmount,
+          items: items.map(it => ({
+            name: it.name,
+            price: Number(it.price),
+            qty: Number(it.qty)
+          }))
+        })
+      });
+
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to add purchase order");
+      }
+
+      const json = await res.json();
+      if (json.data) {
+        setProfile(json.data);
+        setIsAddOrderOpen(false);
+        setChannel("online");
+        setItems([{ name: "", price: 0, qty: 1 }]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setOrderError(err.message || "An unexpected error occurred");
+    } finally {
+      setSubmittingOrder(false);
+    }
+  };
 
   useEffect(() => {
     async function fetchProfile() {
@@ -189,11 +244,22 @@ export default function CustomerProfilePage() {
           
           {/* Order Timeline */}
           <Card>
-            <CardHeader className="border-b border-text/10 pb-4 flex flex-row items-center gap-2 space-y-0">
-              <ShoppingBag className="w-4 h-4 text-primary" />
-              <CardTitle className="uppercase tracking-widest text-xs font-bold">
-                Order History Timeline
-              </CardTitle>
+            <CardHeader className="border-b border-text/10 pb-4 flex flex-row items-center justify-between space-y-0">
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-primary" />
+                <CardTitle className="uppercase tracking-widest text-xs font-bold">
+                  Order History Timeline
+                </CardTitle>
+              </div>
+              <Button
+                onClick={() => setIsAddOrderOpen(true)}
+                variant="default"
+                size="sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs shadow-extruded hover:shadow-recessed transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Order</span>
+              </Button>
             </CardHeader>
             <CardContent className="pt-6">
               {profile.orders && profile.orders.length > 0 ? (
@@ -316,6 +382,157 @@ export default function CustomerProfilePage() {
 
         </div>
       </div>
+
+      {/* Add Order Modal */}
+      {isAddOrderOpen && (
+        <div className="fixed inset-0 bg-text/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-surface border border-text/10 rounded-xl shadow-extruded max-w-lg w-full p-6 space-y-6 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-text/10 pb-3">
+              <h3 className="font-sans font-bold text-sm uppercase tracking-wider text-text">
+                Add Manual Order
+              </h3>
+              <button
+                onClick={() => setIsAddOrderOpen(false)}
+                className="text-text-muted hover:text-text p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddOrder} className="space-y-4 overflow-y-auto flex-1 pr-1">
+              {orderError && (
+                <div className="bg-danger/10 border border-danger/30 text-danger text-xs p-3 rounded flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{orderError}</span>
+                </div>
+              )}
+
+              {/* Channel Select */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                  Sales Channel
+                </label>
+                <select
+                  value={channel}
+                  onChange={(e) => setChannel(e.target.value as any)}
+                  className="bg-surface border border-text/5 rounded p-2 text-xs font-sans text-text shadow-recessed focus:outline-none focus:ring-1 focus:ring-primary w-full"
+                >
+                  <option value="online">Online Store</option>
+                  <option value="store">Physical Store</option>
+                  <option value="app">Mobile App</option>
+                </select>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                    Order Items
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setItems([...items, { name: "", price: 0, qty: 1 }])}
+                    className="inline-flex items-center gap-1 text-[10px] font-sans font-bold uppercase tracking-wider text-primary hover:underline"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Item</span>
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="flex gap-2 items-end">
+                      <div className="flex-1 space-y-1">
+                        <span className="text-[9px] font-mono text-text-muted">Name</span>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Suede Jacket"
+                          value={item.name}
+                          onChange={(e) => {
+                            const newItems = [...items];
+                            newItems[idx].name = e.target.value;
+                            setItems(newItems);
+                          }}
+                          className="bg-surface border border-text/5 rounded p-2 text-xs font-sans text-text shadow-recessed focus:outline-none focus:ring-1 focus:ring-primary w-full"
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <span className="text-[9px] font-mono text-text-muted">Price (₹)</span>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          placeholder="0"
+                          value={item.price || ""}
+                          onChange={(e) => {
+                            const newItems = [...items];
+                            newItems[idx].price = Number(e.target.value);
+                            setItems(newItems);
+                          }}
+                          className="bg-surface border border-text/5 rounded p-2 text-xs font-sans text-text shadow-recessed focus:outline-none focus:ring-1 focus:ring-primary w-full"
+                        />
+                      </div>
+                      <div className="w-16 space-y-1">
+                        <span className="text-[9px] font-mono text-text-muted">Qty</span>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          value={item.qty}
+                          onChange={(e) => {
+                            const newItems = [...items];
+                            newItems[idx].qty = Number(e.target.value);
+                            setItems(newItems);
+                          }}
+                          className="bg-surface border border-text/5 rounded p-2 text-xs font-sans text-text shadow-recessed focus:outline-none focus:ring-1 focus:ring-primary w-full"
+                        />
+                      </div>
+                      {items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setItems(items.filter((_, i) => i !== idx))}
+                          className="bg-surface border border-text/5 p-2 rounded text-danger hover:bg-danger/10 hover:border-danger/30 shadow-extruded hover:shadow-recessed transition-all flex items-center justify-center h-[34px] w-[34px]"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Summary / Total */}
+              <div className="border-t border-text/10 pt-4 flex justify-between items-center text-xs font-mono">
+                <span className="text-text-muted">TOTAL AMOUNT:</span>
+                <span className="font-bold text-sm text-text">
+                  ₹{items.reduce((sum, item) => sum + (item.price * (item.qty || 0)), 0).toLocaleString("en-IN")}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 border-t border-text/10 pt-4">
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={() => setIsAddOrderOpen(false)}
+                  disabled={submittingOrder}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={submittingOrder}
+                  className="px-5"
+                >
+                  {submittingOrder ? "Saving..." : "Save Order"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

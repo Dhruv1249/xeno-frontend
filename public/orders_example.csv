@@ -1,0 +1,4 @@
+id,customer_id,amount,channel,items,created_at
+a188f635-fcfc-4d22-b91c-1e2499d63820,e28b7e28-1b2c-473d-88b1-3829471ab201,1500,online,"[{""name"": ""Denim Jacket"", ""price"": 1500, ""qty"": 1}]",2026-06-01T12:00:00Z
+b9c6a1e5-827d-4172-ba00-a6e5b4a78129,c8c9735d-0d67-4e08-bf5b-c2e367af0382,2400,store,"[{""name"": ""Running Shoes"", ""price"": 2400, ""qty"": 1}]",2026-06-02T14:30:00Z
+d79a1bc6-f94d-4876-b9a1-57acb1239845,f7253578-83b6-455b-b9f1-a1e687bc1294,800,app,"[{""name"": ""Polo T-Shirt"", ""price"": 800, ""qty"": 1}]",2026-06-03T10:15:00Z

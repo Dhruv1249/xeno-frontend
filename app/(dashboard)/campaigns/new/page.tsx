@@ -42,6 +42,8 @@ export default function NewCampaignPage() {
   const [selectedChannel, setSelectedChannel] = useState<"whatsapp" | "sms" | "email" | "rcs">("whatsapp");
   const [messageText, setMessageText] = useState("");
   const [selectedTone, setSelectedTone] = useState<"friendly" | "urgent" | "exclusive">("friendly");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [manualInstructions, setManualInstructions] = useState("");
 
   // Load real segments from database API
   useEffect(() => {
@@ -116,6 +118,11 @@ export default function NewCampaignPage() {
     setSelectedChannel(tmpl.channel);
     setMessageText(tmpl.message_scaffold);
     setSelectedTone(tmpl.tone);
+    if (tmpl.channel === "email") {
+      setEmailSubject("Our New Autumn Collection is Here!");
+    } else {
+      setEmailSubject("");
+    }
 
     // Set target segment based on template's preset
     const preset = tmpl.preset_segment;
@@ -151,11 +158,17 @@ export default function NewCampaignPage() {
       
       async function fetchRecommendation() {
         try {
-          const res = await fetch(`/api/ai/recommend?segment_id=${targetSegmentId}&channel=${selectedChannel}`);
+          const res = await fetch("/api/ai/recommend", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ segment_id: targetSegmentId, channel: selectedChannel }),
+          });
           if (!active) return;
           if (res.ok) {
             const json = await res.json();
-            setRecommendation(json.recommendation);
+            if (json.data) {
+              setRecommendation(json.data);
+            }
           } else {
             // Mock recommendation
             setTimeout(() => {
@@ -195,25 +208,42 @@ export default function NewCampaignPage() {
         body: JSON.stringify({
           segment_name: segName,
           channel: selectedChannel,
-          tone: selectedTone
+          tone: selectedTone,
+          custom_prompt: manualInstructions
         })
       });
 
       if (res.ok) {
         const json = await res.json();
-        if (json.draft) setMessageText(json.draft);
+        if (json.data) {
+          if (json.data.draft) {
+            setMessageText(json.data.draft);
+          }
+          if (json.data.subject) {
+            setEmailSubject(json.data.subject);
+          }
+        } else if (json.draft) {
+          setMessageText(json.draft);
+        }
       } else {
         // Fallback drafts containing customer_name
         setTimeout(() => {
           let draft = "";
+          let subject = "";
           if (selectedTone === "urgent") {
             draft = `Hurry {{customer_name}}! 🚨 Limited time offer on your favorite styles. Use code EXPEDITE for free shipping. Ends in 4 hours!`;
+            subject = "Urgent: Limited Time Offer Just for You!";
           } else if (selectedTone === "exclusive") {
             draft = `Greetings {{customer_name}} ✨. We've unlocked VIP access for your account. Shop our new limited drop before anyone else: xeno.in/vip`;
+            subject = "VIP Access Unlocked - Shop the Drop First";
           } else {
             draft = `Hi {{customer_name}}! Hope your week is going well. We wanted to share some new styles that just landed in our shop. Stop by whenever you have a moment!`;
+            subject = "New Arrivals are Here!";
           }
           setMessageText(draft);
+          if (selectedChannel === "email") {
+            setEmailSubject(subject);
+          }
         }, 500);
       }
     } catch (error) {
@@ -227,11 +257,15 @@ export default function NewCampaignPage() {
   const handleSendCampaign = async (status: "running" | "scheduled") => {
     setSendingCampaign(true);
     try {
+      const finalMessageTemplate = selectedChannel === "email"
+        ? `Subject: ${emailSubject.trim()}\n\n${messageText}`
+        : messageText;
+
       const payload = {
         name: campaignName || `Campaign ${new Date().toLocaleDateString()}`,
         segment_id: targetSegmentId,
         channel: selectedChannel,
-        message_template: messageText,
+        message_template: finalMessageTemplate,
         status: status === "running" ? "draft" : "scheduled",
       };
 
@@ -488,7 +522,12 @@ export default function NewCampaignPage() {
                   {(["whatsapp", "sms", "email", "rcs"] as const).map((ch) => (
                     <button
                       key={ch}
-                      onClick={() => setSelectedChannel(ch)}
+                      onClick={() => {
+                        setSelectedChannel(ch);
+                        if (ch === "email" && !emailSubject) {
+                          setEmailSubject("Exclusive Offer for You!");
+                        }
+                      }}
                       className={`
                         p-4 rounded-lg border font-sans font-bold text-xs uppercase tracking-wider text-left transition-all duration-150 select-none cursor-pointer
                         ${
@@ -581,51 +620,81 @@ export default function NewCampaignPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
-                
-                {/* Tone select & AI Draft trigger */}
-                <div className="flex flex-wrap items-center justify-between gap-4 bg-surface border border-text/5 p-3 rounded-lg shadow-recessed">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Draft Tone:</span>
-                    <select
-                      value={selectedTone}
-                      onChange={(e) => setSelectedTone(e.target.value as "friendly" | "urgent" | "exclusive")}
-                      className="bg-surface border border-text/10 rounded-lg p-1.5 text-xs font-mono tracking-wider shadow-extruded outline-none cursor-pointer"
+                          {/* AI Draft Custom Instructions */}
+                <div className="space-y-3 bg-surface/50 border border-text/5 p-4 rounded-lg shadow-recessed">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Draft Tone:</span>
+                      <select
+                        value={selectedTone}
+                        onChange={(e) => setSelectedTone(e.target.value as "friendly" | "urgent" | "exclusive")}
+                        className="bg-surface border border-text/10 rounded-lg p-1.5 text-xs font-mono tracking-wider shadow-extruded outline-none cursor-pointer"
+                      >
+                        <option value="friendly">FRIENDLY</option>
+                        <option value="urgent">URGENT</option>
+                        <option value="exclusive">EXCLUSIVE</option>
+                      </select>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={draftLoading}
+                      onClick={handleAIDraft}
+                      leftIcon={<Sparkles className="w-3.5 h-3.5 text-primary" />}
                     >
-                      <option value="friendly">FRIENDLY</option>
-                      <option value="urgent">URGENT</option>
-                      <option value="exclusive">EXCLUSIVE</option>
-                    </select>
+                      {draftLoading ? "Drafting..." : "AI Auto Draft"}
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={draftLoading}
-                    onClick={handleAIDraft}
-                    leftIcon={<Sparkles className="w-3.5 h-3.5 text-primary" />}
-                  >
-                    {draftLoading ? "Drafting..." : "AI Auto Draft"}
-                  </Button>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                      Manual Copywriting Prompt / Custom Instructions (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualInstructions}
+                      onChange={(e) => setManualInstructions(e.target.value)}
+                      placeholder="e.g. Include details about free shipping, mention Autumn arrivals..."
+                      className="w-full bg-surface border border-text/10 rounded-lg p-2 text-xs font-sans tracking-wide shadow-recessed outline-none focus:border-primary"
+                    />
+                  </div>
                 </div>
+
+                {/* Email Subject line (if email channel selected) */}
+                {selectedChannel === "email" && (
+                  <div className="space-y-1 animate-fadeIn">
+                    <label className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                      Email Subject Line
+                    </label>
+                    <input
+                      type="text"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      placeholder="ENTER EMAIL SUBJECT LINE..."
+                      className="w-full bg-surface border border-text/10 rounded-lg p-2.5 text-xs font-mono tracking-wider shadow-recessed outline-none focus:border-primary"
+                    />
+                  </div>
+                )}
 
                 {/* Message body textarea */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
-                    Message Template Content
+                    {selectedChannel === "email" ? "Email Body Content" : "Message Template Content"}
                   </label>
                   <textarea
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="ENTER MESSAGE TEMPLATE. USE {{customer_name}} AS A PERSONALIZED VARIABLE..."
+                    placeholder={selectedChannel === "email" ? "ENTER EMAIL BODY. USE {{customer_name}} AS A PERSONALIZED VARIABLE..." : "ENTER MESSAGE TEMPLATE. USE {{customer_name}} AS A PERSONALIZED VARIABLE..."}
                     rows={6}
                     className="w-full bg-surface border border-text/10 rounded-lg p-3 text-xs font-sans tracking-wide shadow-recessed outline-none focus:border-primary leading-relaxed font-medium"
                   />
                   <div className="flex items-center gap-1.5 text-[10px] text-text-muted pt-1">
-                    <Info className="w-3 h-3" />
+                    <Info className="w-3.5 h-3.5" />
                     <span>The variable <code className="bg-text/5 font-mono px-1 rounded">{"{{customer_name}}"}</code> will be substituted per recipient at dispatch time.</span>
                   </div>
                 </div>
-
-                <div className="flex justify-between items-center border-t border-text/5 pt-4 mt-6">
+                  
+                  <div className="flex justify-between items-center border-t border-text/5 pt-4 mt-6">
                   <Button variant="default" size="sm" onClick={() => setStep(3)} leftIcon={<ChevronLeft className="w-4 h-4" />}>
                     Back
                   </Button>
@@ -656,26 +725,55 @@ export default function NewCampaignPage() {
                 <div className="font-mono text-[9px] uppercase tracking-wider text-text-muted">
                   Simulated phone client render:
                 </div>
-                
-                {/* Simulated Phone screen */}
+                          {/* Simulated Phone screen / Email preview */}
                 <div className="bg-surface border border-text/10 p-4 rounded-xl shadow-recessed relative">
-                  <div className="flex items-center gap-2 border-b border-text/5 pb-2.5 mb-3">
-                    <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[9px]">X</div>
-                    <div>
-                      <div className="font-sans font-bold text-[10px] leading-tight">XENO BRAND DISPATCH</div>
-                      <div className="font-mono text-[8px] text-text-muted uppercase tracking-wider">via {selectedChannel}</div>
+                  {selectedChannel === "email" ? (
+                    <div className="space-y-3 font-sans text-xs">
+                      {/* Email Headers */}
+                      <div className="border-b border-text/5 pb-2 space-y-1.5">
+                        <div className="flex items-center justify-between text-[9px] text-text-muted">
+                          <span>From: newsletter@xeno.in</span>
+                          <span>11:34 AM</span>
+                        </div>
+                        <div className="text-[10px] font-medium text-text">
+                          To: <span className="text-text-muted">aarav.sharma@gmail.com</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-primary flex items-start gap-1">
+                          <span className="text-[9px] text-text-muted uppercase font-mono shrink-0 pt-0.5">Subject:</span>
+                          <span>{emailSubject || "Exclusive Offer"}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Email Body */}
+                      <div className="text-text-muted leading-relaxed whitespace-pre-wrap pt-1 min-h-[80px]">
+                        {messageText ? (
+                          messageText.replace(/\{\{\s*customer_name\s*\}\}/g, "Aarav Sharma")
+                        ) : (
+                          <span className="italic text-text-muted">Template body empty...</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-
-                  {/* SMS/WhatsApp style message bubble */}
-                  <div className="bg-[#DCF8C6]/15 border border-[#DCF8C6]/50 rounded-lg p-3 max-w-[85%] font-sans text-xs leading-relaxed text-text shadow-extruded">
-                    {messageText ? (
-                      messageText.replace(/\{\{customer_name\}\}/g, "Aarav Sharma")
-                    ) : (
-                      <span className="italic text-text-muted">Template empty...</span>
-                    )}
-                    <div className="text-right text-[8px] text-text-muted mt-1">11:34 AM</div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 border-b border-text/5 pb-2.5 mb-3">
+                        <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-[9px]">X</div>
+                        <div>
+                          <div className="font-sans font-bold text-[10px] leading-tight">XENO BRAND DISPATCH</div>
+                          <div className="font-mono text-[8px] text-text-muted uppercase tracking-wider">via {selectedChannel}</div>
+                        </div>
+                      </div>
+     
+                      {/* SMS/WhatsApp style message bubble */}
+                      <div className="bg-[#DCF8C6]/15 border border-[#DCF8C6]/50 rounded-lg p-3 max-w-[85%] font-sans text-xs leading-relaxed text-text shadow-extruded">
+                        {messageText ? (
+                          messageText.replace(/\{\{\s*customer_name\s*\}\}/g, "Aarav Sharma")
+                        ) : (
+                          <span className="italic text-text-muted">Template empty...</span>
+                        )}
+                        <div className="text-right text-[8px] text-text-muted mt-1">11:34 AM</div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>

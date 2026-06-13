@@ -56,6 +56,7 @@ function NewSegmentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const presetSegment = searchParams ? searchParams.get("preset") : null;
+  const editId = searchParams ? searchParams.get("edit") : null;
 
   // Segment State
   const [segmentName, setSegmentName] = useState<string>(() => presetSegment ? `${presetSegment} Target Group` : "");
@@ -73,6 +74,32 @@ function NewSegmentPageContent() {
   const [audienceSample, setAudienceSample] = useState<{ id: string; name: string }[]>([]);
   const [audienceLoading, setAudienceLoading] = useState(false);
   const [savingSegment, setSavingSegment] = useState(false);
+
+  // Load segment details if we are in Edit Mode
+  useEffect(() => {
+    if (!editId) return;
+
+    async function fetchSegmentDetails() {
+      try {
+        const res = await fetch(`/api/segments/${editId}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            setSegmentName(json.data.name);
+            setSegmentDescription(json.data.description || "");
+            if (json.data.filter_rules) {
+              setRules(json.data.filter_rules.rules || []);
+              setOperator(json.data.filter_rules.operator || "AND");
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load segment details for editing", err);
+      }
+    }
+
+    fetchSegmentDetails();
+  }, [editId]);
 
   // Debounced Audience Count Fetcher
   const updateAudienceCount = useCallback(async (currentRules: FilterRule[], currentOperator: string) => {
@@ -257,8 +284,11 @@ function NewSegmentPageContent() {
         customer_count: audienceCount,
       };
 
-      const res = await fetch("/api/segments", {
-        method: "POST",
+      const url = editId ? `/api/segments/${editId}` : "/api/segments";
+      const method = editId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -291,7 +321,7 @@ function NewSegmentPageContent() {
           Audience Builder
         </span>
         <h1 className="font-sans font-bold text-3xl uppercase tracking-wider text-text mt-1">
-          New Segment
+          {editId ? "Edit Segment" : "New Segment"}
         </h1>
       </div>
 

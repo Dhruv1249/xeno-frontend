@@ -97,6 +97,48 @@ export async function getCustomers(
 }
 
 /**
+ * Returns the total count of customers matching search and filter options.
+ *
+ * @param search Search query
+ * @param rfmSegment Target RFM segment
+ * @param city Target city
+ * @returns Total matching count
+ */
+export async function getCustomersCount(
+  search = "",
+  rfmSegment = "All",
+  city = "All"
+): Promise<number> {
+  let queryText = `
+    SELECT COUNT(*) FROM customers
+    WHERE 1=1
+  `;
+  const params: unknown[] = [];
+  let paramIdx = 1;
+
+  if (search) {
+    queryText += ` AND (name ILIKE $${paramIdx} OR email ILIKE $${paramIdx} OR city ILIKE $${paramIdx})`;
+    params.push(`%${search}%`);
+    paramIdx++;
+  }
+
+  if (rfmSegment !== "All") {
+    queryText += ` AND rfm_segment = $${paramIdx}`;
+    params.push(rfmSegment);
+    paramIdx++;
+  }
+
+  if (city !== "All") {
+    queryText += ` AND city = $${paramIdx}`;
+    params.push(city);
+    paramIdx++;
+  }
+
+  const rows = await executeQuery<{ count: string }>(queryText, params);
+  return Number(rows[0]?.count || 0);
+}
+
+/**
  * Fetches a single customer record by ID.
  */
 export async function getCustomerById(id: string): Promise<Customer | null> {
@@ -225,6 +267,31 @@ export async function insertSegment(segment: Partial<Segment>): Promise<Segment>
     segment.description || null,
     JSON.stringify(segment.filter_rules),
     segment.customer_count || 0,
+  ];
+  const rows = await executeQuery<Segment>(queryText, params);
+  return rows[0];
+}
+
+/**
+ * Updates an existing segment definition.
+ */
+export async function updateSegment(id: string, segment: Partial<Segment>): Promise<Segment> {
+  const queryText = `
+    UPDATE segments
+    SET name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        filter_rules = COALESCE($3, filter_rules),
+        customer_count = COALESCE($4, customer_count),
+        updated_at = now()
+    WHERE id = $5
+    RETURNING *
+  `;
+  const params = [
+    segment.name || null,
+    segment.description || null,
+    segment.filter_rules ? JSON.stringify(segment.filter_rules) : null,
+    segment.customer_count ?? null,
+    id,
   ];
   const rows = await executeQuery<Segment>(queryText, params);
   return rows[0];
@@ -603,6 +670,30 @@ export async function getCampaignChartData(campaignId: string): Promise<{
   `;
   return executeQuery<{ event_type: string; occurred_at: Date }>(queryText, [campaignId]);
 }
+
+/**
+ * Retrieves the historical callback events for a campaign, including customer names.
+ * Used to populate the live ticker log.
+ */
+export async function getCampaignEvents(campaignId: string): Promise<{
+  id: string;
+  customer_name: string;
+  channel: string;
+  event_type: string;
+  occurred_at: Date;
+}[]> {
+  const queryText = `
+    SELECT e.id::text, cust.name as customer_name, c.channel, e.event_type, e.occurred_at
+    FROM events e
+    JOIN communications c ON e.communication_id = c.id
+    JOIN customers cust ON c.customer_id = cust.id
+    WHERE c.campaign_id = $1
+    ORDER BY e.occurred_at DESC
+    LIMIT 1000
+  `;
+  return executeQuery<any>(queryText, [campaignId]);
+}
+
 
 
 

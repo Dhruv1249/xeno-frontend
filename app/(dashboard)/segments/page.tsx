@@ -186,11 +186,18 @@ export default function SegmentsListPage() {
               <span className="font-mono text-[9px] text-text-muted uppercase tracking-wider">
                 Created: {new Date(segment.created_at).toLocaleDateString()}
               </span>
-              <Link href={`/campaigns/new?segment=${segment.id}`}>
-                <Button size="sm" variant="default" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
-                  Dispatch
-                </Button>
-              </Link>
+              <div className="flex gap-2">
+                <Link href={`/segments/new?edit=${segment.id}`}>
+                  <Button size="sm" variant="default" className="text-xs">
+                    Edit
+                  </Button>
+                </Link>
+                <Link href={`/campaigns/new?segment=${segment.id}`}>
+                  <Button size="sm" variant="primary" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+                    Dispatch
+                  </Button>
+                </Link>
+              </div>
             </CardFooter>
           </Card>
         ))}

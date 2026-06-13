@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCampaignById, getCampaignChartData } from "@/lib/db";
+import { getCampaignById, getCampaignChartData, getCampaignEvents } from "@/lib/db";
 import { z } from "zod";
 
 const ParamsSchema = z.object({
@@ -88,9 +88,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       });
     }
 
+    const eventsLog = await getCampaignEvents(campaign.id);
+
     const payload = {
       ...campaign,
       chart_data: chartData,
+      events_log: eventsLog,
     };
 
     return NextResponse.json({

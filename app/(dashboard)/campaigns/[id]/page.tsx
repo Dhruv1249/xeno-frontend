@@ -62,7 +62,17 @@ interface AnalyticsCampaign {
   failed_count: number;
   message_template: string;
   ai_summary?: string;
+  sent_at?: string;
+  created_at?: string;
+  completed_at?: string;
   chart_data: ChartTimePoint[];
+  events_log?: {
+    id: string;
+    customer_name: string;
+    channel: string;
+    event_type: string;
+    occurred_at: string;
+  }[];
 }
 
 const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
@@ -140,6 +150,7 @@ interface FeedEvent {
   channel: string;
   event_type: "sent" | "delivered" | "opened" | "clicked" | "failed";
   timestamp: string;
+  occurred_at?: string;
 }
 
 /**
@@ -152,19 +163,30 @@ export default function CampaignAnalyticsPage() {
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id || "";
 
   const [campaign, setCampaign] = useState<AnalyticsCampaign | null>(null);
+  const [displayedCampaign, setDisplayedCampaign] = useState<AnalyticsCampaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
+  const [replayedEvents, setReplayedEvents] = useState<FeedEvent[]>([]);
 
   // AI summary states
   const [aiSummary, setAiSummary] = useState("");
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+
+  // Hovered card state
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
   // SSE event source reference
   const sseRef = useRef<EventSource | null>(null);
 
   // User adjustable tick rate (polling rate and ticker interval)
   const [tickRate, setTickRate] = useState<number>(3000);
+  const [inputValue, setInputValue] = useState<string>("3.0");
   const [showLiveFeed, setShowLiveFeed] = useState<boolean>(true);
+
+  // Sync manual input value text with tickRate changes
+  useEffect(() => {
+    setInputValue((tickRate / 1000).toFixed(1));
+  }, [tickRate]);
   const [chartType, setChartType] = useState<"area" | "line" | "bar">("area");
   const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>({
     delivered: true,
@@ -173,6 +195,7 @@ export default function CampaignAnalyticsPage() {
   });
 
   const campaignRef = useRef<AnalyticsCampaign | null>(null);
+  const eventBufferRef = useRef<FeedEvent[]>([]);
 
   // Keep campaignRef updated for effect callbacks without restarting connections
   useEffect(() => {
@@ -187,8 +210,21 @@ export default function CampaignAnalyticsPage() {
           const json = await res.json();
           if (json.data) {
             setCampaign(json.data);
+            setDisplayedCampaign(json.data);
             setShowLiveFeed(json.data.status !== "completed");
             setLoading(false);
+
+            // Populate the ticker log with historical logs
+            if (json.data.events_log) {
+              const mappedEvents = json.data.events_log.map((evt: any) => ({
+                id: `${evt.id}-${evt.event_type}`,
+                customer_name: evt.customer_name,
+                channel: evt.channel,
+                event_type: evt.event_type,
+                timestamp: new Date(evt.occurred_at).toLocaleTimeString(),
+              }));
+              setFeedEvents(mappedEvents.slice(0, 50));
+            }
             return;
           }
         }
@@ -199,6 +235,7 @@ export default function CampaignAnalyticsPage() {
       // Fallback
       const fallback = MOCK_CAMPAIGN_DETAILS[id] || MOCK_CAMPAIGN_DETAILS.default;
       setCampaign(fallback);
+      setDisplayedCampaign(fallback);
       setShowLiveFeed(fallback.status !== "completed");
       setLoading(false);
     }
@@ -208,11 +245,93 @@ export default function CampaignAnalyticsPage() {
     }
   }, [id]);
 
-  // Connect to SSE Live Feed + client-side receipt simulation fallback
+  // Replay historical logs for completed campaigns when the ticker is shown
   useEffect(() => {
-    if (!id || loading || !campaign) return;
+    if (!campaign || campaign.status !== "completed") return;
 
-    // Connect to Next.js SSE endpoint
+    if (showLiveFeed) {
+      // Reset displayed campaign counts and clear ticker log for playback
+      setFeedEvents([]);
+      setReplayedEvents([]);
+      setDisplayedCampaign({
+        ...campaign,
+        sent_count: 0,
+        delivered_count: 0,
+        open_count: 0,
+        click_count: 0,
+        failed_count: 0,
+      });
+
+      if (campaign.events_log) {
+        const mappedEvents = campaign.events_log.map((evt: any) => ({
+          id: `${evt.id}-${evt.event_type}`,
+          customer_name: evt.customer_name,
+          channel: evt.channel,
+          event_type: evt.event_type,
+          timestamp: new Date(evt.occurred_at).toLocaleTimeString(),
+          occurred_at: evt.occurred_at,
+        })).reverse();
+        eventBufferRef.current = mappedEvents;
+      }
+    } else {
+      // Restore final campaign counts when ticker log is hidden
+      setDisplayedCampaign(campaign);
+      setReplayedEvents([]);
+      eventBufferRef.current = [];
+    }
+  }, [showLiveFeed, campaign]);
+
+  // Ticker loop: pulls events from buffer and updates UI state at the selected tickRate (ONLY for completed campaign replay)
+  useEffect(() => {
+    if (loading || !campaign || campaign.status !== "completed" || !showLiveFeed) return;
+
+    const interval = setInterval(() => {
+      if (eventBufferRef.current.length > 0) {
+        const nextEvent = eventBufferRef.current.shift();
+        if (nextEvent) {
+          // Add to feedEvents list
+          setFeedEvents((prev) => {
+            if (prev.some(evt => evt.id === nextEvent.id)) {
+              return prev;
+            }
+            return [nextEvent, ...prev.slice(0, 29)];
+          });
+
+          // Track replayed events to build chart data dynamically
+          setReplayedEvents((prev) => [...prev, nextEvent]);
+
+          // Update displayedCampaign counters in sync with replay!
+          setDisplayedCampaign((curr) => {
+            if (!curr) return curr;
+            const copy = { ...curr };
+
+            if (nextEvent.event_type === "sent") {
+              copy.sent_count += 1;
+            } else if (nextEvent.event_type === "delivered") {
+              copy.delivered_count += 1;
+            } else if (nextEvent.event_type === "opened") {
+              copy.open_count += 1;
+            } else if (nextEvent.event_type === "clicked") {
+              copy.click_count += 1;
+            } else if (nextEvent.event_type === "failed") {
+              copy.failed_count += 1;
+            }
+            return copy;
+          });
+        }
+      } else {
+        clearInterval(interval);
+        setShowLiveFeed(false);
+      }
+    }, tickRate);
+
+    return () => clearInterval(interval);
+  }, [loading, campaign?.id, campaign?.status, showLiveFeed, tickRate]);
+
+  // Connect to SSE Live Feed (play live events immediately at the current rate as they arrive)
+  useEffect(() => {
+    if (!id || loading || !campaign || campaign.status === "completed") return;
+
     const url = `/api/feed?campaign_id=${id}`;
     const eventSource = new EventSource(url);
     sseRef.current = eventSource;
@@ -221,26 +340,39 @@ export default function CampaignAnalyticsPage() {
       try {
         const data = JSON.parse(event.data);
         if (data.campaign_id === id) {
-          setFeedEvents((prev) => [
-            {
-              id: data.communication_id || Math.random().toString(),
+          const newEventId = `${data.communication_id || Math.random().toString()}-${data.event_type}`;
+          
+          setFeedEvents((prev) => {
+            if (prev.some(evt => evt.id === newEventId)) return prev;
+
+            const newEvent: FeedEvent = {
+              id: newEventId,
               customer_name: data.customer_name || "Shopper",
               channel: campaignRef.current?.channel || "whatsapp",
               event_type: data.event_type,
               timestamp: new Date().toLocaleTimeString(),
-            },
-            ...prev.slice(0, 19), // Cap log at last 20
-          ]);
+            };
 
-          // Dynamically bump counters if running
-          setCampaign((curr) => {
-            if (!curr) return curr;
-            const updated = { ...curr };
-            if (data.event_type === "delivered") updated.delivered_count += 1;
-            if (data.event_type === "opened") updated.open_count += 1;
-            if (data.event_type === "clicked") updated.click_count += 1;
-            if (data.event_type === "failed") updated.failed_count += 1;
-            return updated;
+            // Increment displayedCampaign counters immediately for live events!
+            setDisplayedCampaign((curr) => {
+              if (!curr) return curr;
+              const copy = { ...curr };
+
+              if (newEvent.event_type === "sent") {
+                copy.sent_count += 1;
+              } else if (newEvent.event_type === "delivered") {
+                copy.delivered_count += 1;
+              } else if (newEvent.event_type === "opened") {
+                copy.open_count += 1;
+              } else if (newEvent.event_type === "clicked") {
+                copy.click_count += 1;
+              } else if (newEvent.event_type === "failed") {
+                copy.failed_count += 1;
+              }
+              return copy;
+            });
+
+            return [newEvent, ...prev.slice(0, 29)];
           });
         }
       } catch (e) {
@@ -249,78 +381,15 @@ export default function CampaignAnalyticsPage() {
     };
 
     eventSource.onerror = () => {
-      console.warn(
-        "SSE connection closed. Normal behavior on serverless resets.",
-      );
+      console.warn("SSE connection closed.");
     };
-
-    // Client-side visual ticker simulation
-    // Triggers mock arrivals periodically to ensure the double ticks animate beautifully
-    const names = [
-      "Aarav Sharma",
-      "Ananya Iyer",
-      "Rohan Verma",
-      "Priya Nair",
-      "Aditya Rao",
-      "Kavya Patel",
-      "Meera Joshi",
-      "Diya Gupta",
-      "Kabir Singh",
-      "Rahul Bose",
-    ];
-    const events: ("sent" | "delivered" | "opened" | "clicked" | "failed")[] = [
-      "sent",
-      "delivered",
-      "opened",
-      "clicked",
-      "failed",
-    ];
-
-    const interval = setInterval(() => {
-      const currentCamp = campaignRef.current;
-      if (!currentCamp || currentCamp.status === "completed") return;
-
-      const randomName = names[Math.floor(Math.random() * names.length)];
-      const randomEvent = events[Math.floor(Math.random() * events.length)];
-
-      const newSimulatedEvent: FeedEvent = {
-        id: Math.random().toString(),
-        customer_name: randomName,
-        channel: currentCamp.channel || "whatsapp",
-        event_type: randomEvent,
-        timestamp: new Date().toLocaleTimeString(),
-      };
-
-      setFeedEvents((prev) => [newSimulatedEvent, ...prev.slice(0, 29)]);
-
-      // Adjust live counters slightly to match simulated events
-      setCampaign((curr) => {
-        if (!curr || curr.status === "completed") return curr;
-        const copy = { ...curr };
-
-        // Ensure sent_count is non-zero so percentages don't error
-        if (copy.sent_count === 0) copy.sent_count = 100;
-
-        if (randomEvent === "delivered")
-          copy.delivered_count = Math.min(
-            copy.sent_count,
-            copy.delivered_count + 1,
-          );
-        if (randomEvent === "opened")
-          copy.open_count = Math.min(copy.delivered_count, copy.open_count + 1);
-        if (randomEvent === "clicked")
-          copy.click_count = Math.min(copy.open_count, copy.click_count + 1);
-        if (randomEvent === "failed")
-          copy.failed_count = Math.min(copy.sent_count, copy.failed_count + 1);
-        return copy;
-      });
-    }, tickRate);
 
     return () => {
       eventSource.close();
-      clearInterval(interval);
     };
-  }, [id, loading, tickRate]);
+  }, [id, loading, campaign?.status]);
+
+
 
   // Poll actual database stats periodically while the campaign is actively running
   useEffect(() => {
@@ -332,12 +401,21 @@ export default function CampaignAnalyticsPage() {
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
-            setCampaign((curr) => {
+            setCampaign(json.data);
+            if (json.data.status === "completed") {
+              setShowLiveFeed(false);
+            }
+            setDisplayedCampaign((curr) => {
               if (!curr) return json.data;
-              // Preserve the name and template but fetch fresh database counts & chart intervals
+              // Synchronize chart data and metadata from database, but preserve local counter progress
               return {
                 ...curr,
                 ...json.data,
+                sent_count: Math.max(curr.sent_count, json.data.sent_count),
+                delivered_count: Math.max(curr.delivered_count, json.data.delivered_count),
+                open_count: Math.max(curr.open_count, json.data.open_count),
+                click_count: Math.max(curr.click_count, json.data.click_count),
+                failed_count: Math.max(curr.failed_count, json.data.failed_count),
               };
             });
           }
@@ -345,10 +423,10 @@ export default function CampaignAnalyticsPage() {
       } catch (err) {
         console.error("Error polling database stats:", err);
       }
-    }, tickRate);
+    }, 1000); // Poll every 1s (independent of replay tick rate) to keep active campaign stats updated
 
     return () => clearInterval(statsInterval);
-  }, [id, loading, campaign?.status, tickRate]);
+  }, [id, loading, campaign?.status]);
 
   // Summarize Campaign via Gemini API
   const handleSummarize = async () => {
@@ -374,6 +452,68 @@ export default function CampaignAnalyticsPage() {
     }
   };
 
+  // Generate dynamic chart data based on replayed events
+  const dynamicChartData = React.useMemo(() => {
+    if (!campaign) return [];
+
+    const startTime = campaign.sent_at
+      ? new Date(campaign.sent_at).getTime()
+      : (campaign.created_at ? new Date(campaign.created_at).getTime() : Date.now());
+
+    const endTime = campaign.completed_at
+      ? new Date(campaign.completed_at).getTime()
+      : Date.now();
+
+    const timeSpan = endTime - startTime;
+    const step = timeSpan > 0 ? timeSpan / 4 : 60 * 1000;
+
+    const chartPoints = [];
+    for (let i = 0; i < 5; i++) {
+      const timeVal = new Date(startTime + i * step);
+      const timeStr = timeVal.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+
+      let sent = 0;
+      let delivered = 0;
+      let opened = 0;
+      let clicked = 0;
+
+      for (const evt of replayedEvents) {
+        if (!evt.occurred_at) continue;
+        const evtTime = new Date(evt.occurred_at).getTime();
+        if (evtTime <= timeVal.getTime()) {
+          if (evt.event_type === "sent") sent++;
+          if (evt.event_type === "delivered") delivered++;
+          if (evt.event_type === "opened") {
+            delivered++;
+            opened++;
+          }
+          if (evt.event_type === "clicked") {
+            delivered++;
+            opened++;
+            clicked++;
+          }
+        }
+      }
+
+      chartPoints.push({
+        time: timeStr,
+        sent,
+        delivered,
+        opened,
+        clicked,
+      });
+    }
+    return chartPoints;
+  }, [campaign, replayedEvents]);
+
+  // Use dynamic chart data for completed campaign replay mode, else use DB chart data
+  const isReplaying = campaign?.status === "completed" && showLiveFeed;
+  const currentChartData = isReplaying ? dynamicChartData : (campaign?.chart_data || []);
+
   if (loading || !campaign) {
     return (
       <div className="space-y-6 w-full animate-pulse">
@@ -387,15 +527,17 @@ export default function CampaignAnalyticsPage() {
     );
   }
 
+  const activeCamp = displayedCampaign || campaign;
+
   // Calculate percentages
-  const openRate = campaign.sent_count
-    ? Math.round((campaign.open_count / campaign.sent_count) * 100)
+  const openRate = activeCamp.sent_count
+    ? Math.round((activeCamp.open_count / activeCamp.sent_count) * 100)
     : 0;
-  const clickRate = campaign.sent_count
-    ? Math.round((campaign.click_count / campaign.sent_count) * 100)
+  const clickRate = activeCamp.sent_count
+    ? Math.round((activeCamp.click_count / activeCamp.sent_count) * 100)
     : 0;
-  const deliverRate = campaign.sent_count
-    ? Math.round((campaign.delivered_count / campaign.sent_count) * 100)
+  const deliverRate = activeCamp.sent_count
+    ? Math.round((activeCamp.delivered_count / activeCamp.sent_count) * 100)
     : 0;
 
   // Visual double ticks matcher for Signature element
@@ -461,34 +603,55 @@ export default function CampaignAnalyticsPage() {
         </div>
       </div>
 
-      {/* Simulation Speed & Tick Rate controls */}
-      {campaign.status === "running" && (
-        <div className="bg-surface border border-primary/20 p-4 rounded-xl shadow-recessed flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+      {/* Replay Speed & Tick Rate controls */}
+      {campaign.status === "completed" && showLiveFeed && (
+        <div className="bg-surface border border-primary/20 p-4 rounded-xl shadow-recessed flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-2.5 shrink-0">
             <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
-              Live Simulation speed / Tick rate:
+              Replay speed / Tick rate:
             </span>
-            <Badge variant="primary" type="recessed" className="font-mono text-xs">
-              {(tickRate / 1000).toFixed(1)}s
+            <Badge variant="primary" type="recessed" className="font-mono text-xs px-2.5 py-1">
+              {inputValue}s
             </Badge>
           </div>
-          <div className="flex items-center gap-2">
-            {[500, 1000, 2000, 3000, 5000].map((rate) => (
-              <button
-                key={rate}
-                onClick={() => setTickRate(rate)}
-                className={`
-                  px-3 py-1.5 rounded font-sans font-bold text-[10px] uppercase tracking-wider transition-all duration-150 cursor-pointer
-                  ${
-                    tickRate === rate
-                      ? "bg-primary text-surface shadow-recessed"
-                      : "bg-surface border border-text/10 text-text-muted hover:text-text hover:border-text/30"
+          <div className="flex flex-1 max-w-md items-center gap-4 w-full md:w-auto">
+            {/* Slider control */}
+            <input
+              type="range"
+              min="100"
+              max="5000"
+              step="100"
+              value={tickRate}
+              onChange={(e) => setTickRate(Number(e.target.value))}
+              className="flex-1 accent-primary cursor-pointer h-1.5 bg-text/10 rounded-lg appearance-none outline-none"
+            />
+            {/* Direct Number Input */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <input
+                type="number"
+                min="0.1"
+                max="5.0"
+                step="0.1"
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val)) {
+                    // Clamp to 0.1s - 5.0s
+                    const clampedVal = Math.min(5.0, Math.max(0.1, val));
+                    setTickRate(Math.round(clampedVal * 10) * 100);
                   }
-                `}
-              >
-                {rate === 500 ? "0.5s (FAST)" : rate === 1000 ? "1s" : `${rate / 1000}s`}
-              </button>
-            ))}
+                }}
+                onBlur={() => {
+                  // Ensure proper formatting when user leaves the input
+                  setInputValue((tickRate / 1000).toFixed(1));
+                }}
+                className="w-16 bg-surface border border-text/10 rounded px-2.5 py-1.5 text-xs font-mono text-center outline-none focus:border-primary shadow-recessed text-text"
+              />
+              <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                sec
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -500,31 +663,43 @@ export default function CampaignAnalyticsPage() {
             Sent
           </div>
           <div className="font-mono text-2xl font-bold text-text mt-1">
-            {campaign.sent_count}
+            {activeCamp.sent_count}
           </div>
         </div>
-        <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
+        <div
+          className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center cursor-pointer transition-all duration-200"
+          onMouseEnter={() => setHoveredCard("delivered")}
+          onMouseLeave={() => setHoveredCard(null)}
+        >
           <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
-            Delivered %
+            {hoveredCard === "delivered" ? "Delivered Count" : "Delivered %"}
           </div>
           <div className="font-mono text-2xl font-bold text-text mt-1">
-            {deliverRate}%
+            {hoveredCard === "delivered" ? activeCamp.delivered_count : `${deliverRate}%`}
           </div>
         </div>
-        <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
+        <div
+          className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center cursor-pointer transition-all duration-200"
+          onMouseEnter={() => setHoveredCard("opened")}
+          onMouseLeave={() => setHoveredCard(null)}
+        >
           <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-success">
-            Opened %
+            {hoveredCard === "opened" ? "Opened Count" : "Opened %"}
           </div>
           <div className="font-mono text-2xl font-bold text-success mt-1">
-            {openRate}%
+            {hoveredCard === "opened" ? activeCamp.open_count : `${openRate}%`}
           </div>
         </div>
-        <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
+        <div
+          className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center cursor-pointer transition-all duration-200"
+          onMouseEnter={() => setHoveredCard("clicked")}
+          onMouseLeave={() => setHoveredCard(null)}
+        >
           <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-primary">
-            Clicked %
+            {hoveredCard === "clicked" ? "Clicked Count" : "Clicked %"}
           </div>
           <div className="font-mono text-2xl font-bold text-primary mt-1">
-            {clickRate}%
+            {hoveredCard === "clicked" ? activeCamp.click_count : `${clickRate}%`}
           </div>
         </div>
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center col-span-2 md:col-span-1">
@@ -532,7 +707,7 @@ export default function CampaignAnalyticsPage() {
             Failed
           </div>
           <div className="font-mono text-2xl font-bold text-danger mt-1">
-            {campaign.failed_count}
+            {activeCamp.failed_count}
           </div>
         </div>
       </div>
@@ -596,7 +771,7 @@ export default function CampaignAnalyticsPage() {
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   {chartType === "area" ? (
-                    <AreaChart data={campaign.chart_data || []}>
+                    <AreaChart key={replayedEvents.length} data={currentChartData}>
                       <defs>
                         <linearGradient
                           id="colorDelivered"
@@ -694,7 +869,7 @@ export default function CampaignAnalyticsPage() {
                       )}
                     </AreaChart>
                   ) : chartType === "line" ? (
-                    <LineChart data={campaign.chart_data || []}>
+                    <LineChart key={replayedEvents.length} data={currentChartData}>
                       <CartesianGrid
                         strokeDasharray="3 3"
                         stroke="#e0e0e0"
@@ -736,7 +911,7 @@ export default function CampaignAnalyticsPage() {
                       )}
                     </LineChart>
                   ) : (
-                    <BarChart data={campaign.chart_data || []}>
+                    <BarChart key={replayedEvents.length} data={currentChartData}>
                       <CartesianGrid
                         strokeDasharray="3 3"
                         stroke="#e0e0e0"

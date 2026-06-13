@@ -19,6 +19,7 @@ const DraftSchema = z.object({
   segment_description: z.string().optional().default(""),
   channel: z.string(),
   tone: z.string(),
+  custom_prompt: z.string().optional().default(""),
 });
 
 /**
@@ -29,16 +30,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validated = DraftSchema.parse(body);
 
-    const message = await draftCampaignMessage(
+    const result = await draftCampaignMessage(
       validated.segment_name,
       validated.segment_description,
       validated.channel,
-      validated.tone
+      validated.tone,
+      validated.custom_prompt
     );
 
     return NextResponse.json({
       data: {
-        draft: message,
+        draft: result.body,
+        subject: result.subject,
       },
     });
   } catch (error) {

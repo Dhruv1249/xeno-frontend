@@ -117,14 +117,25 @@ export async function translateNlToSegmentFilters(query: string): Promise<Filter
 
 /**
  * Drafts a personalized campaign message.
+ *
+ * @param segmentName Name of the target segment
+ * @param segmentDesc Description of the target segment
+ * @param channel Delivery channel
+ * @param tone Chosen copy tone
+ * @param customPrompt Optional manual copywriting instructions
+ * @returns Drafted campaign message subject and body
  */
 export async function draftCampaignMessage(
   segmentName: string,
   segmentDesc: string,
   channel: string,
-  tone: string
-): Promise<string> {
-  const fallback = `Hi {{customer_name}}, check out our latest offers tailored just for you! Order now and get exclusive benefits.`;
+  tone: string,
+  customPrompt = ""
+): Promise<{ subject?: string; body: string }> {
+  const fallback = {
+    body: `Hi {{customer_name}}, check out our latest offers tailored just for you! Order now and get exclusive benefits.`,
+    ...(channel === "email" ? { subject: "Exclusive Offer for You!" } : {})
+  };
 
   if (!apiKey) return fallback;
 
@@ -133,18 +144,34 @@ export async function draftCampaignMessage(
     Segment name: "${segmentName}" (${segmentDesc || "Shoppers"})
     Communication channel: "${channel}"
     Tone of voice: "${tone}"
+    ${customPrompt ? `Additional copywriting instructions/manual prompt: "${customPrompt}"` : ""}
     
     CRITICAL: You MUST insert the exact template placeholder "{{customer_name}}" where the customer's name should appear.
-    Keep it concise and appropriate for the channel. Output ONLY the raw message content. No explanation.
+    Keep it concise and appropriate for the channel.
+
+    If the channel is "email", you MUST generate a suitable, high-converting email subject line in the "subject" field. Otherwise, leave the "subject" field empty or null.
+    
+    Return ONLY a raw JSON object matching the following structure:
+    {
+      "subject": "Email subject line (only return this if channel is email, otherwise return empty string or null)",
+      "body": "The campaign message body"
+    }
   `;
 
   try {
     const model = getModel();
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7 },
+      generationConfig: { temperature: 0.7, responseMimeType: "application/json" },
     });
-    return result.response.text().trim() || fallback;
+    const parsed = cleanAndParseJson<{ subject?: string; body: string }>(
+      result.response.text(),
+      fallback
+    );
+    return {
+      subject: parsed.subject || undefined,
+      body: parsed.body || fallback.body,
+    };
   } catch (error) {
     logError("Message drafting failed", error);
     return fallback;
@@ -208,24 +235,29 @@ export async function summarizeCampaignPerformance(
   const fallback = "Campaign completed. Engagement rates reflect typical retail baseline behaviors.";
   if (!apiKey) return fallback;
 
+  const openRate = stats.sent ? Math.round((stats.opened / stats.sent) * 100) : 0;
+  const clickRate = stats.sent ? Math.round((stats.clicked / stats.sent) * 100) : 0;
+
   const prompt = `
     Write a 2-sentence marketing performance summary for the campaign "${name}".
     Metrics:
     - Channel: ${channel}
     - Total Sent: ${stats.sent}
-    - Opened/Read: ${stats.opened} (Open rate: ${stats.sent ? Math.round((stats.opened / stats.sent) * 100) : 0}%)
-    - Clicked: ${stats.clicked} (Click rate: ${stats.sent ? Math.round((stats.clicked / stats.sent) * 100) : 0}%)
+    - Opened/Read: ${stats.opened} (Open rate: ${openRate}%)
+    - Clicked: ${stats.clicked} (Click rate: ${clickRate}%)
     - Failed: ${stats.failed}
 
+    CRITICAL: You MUST use the EXACT numbers and percentages provided in the metrics above. DO NOT hallucinate, invent, or estimate any other metrics. If a metric is 0 or 0%, you must report it as 0 or 0%. Your summary must be 100% factually accurate to the provided metrics. Any deviation is a failure.
+
     Write a human-readable summary analyzing the response rate and identifying if the channel performed well.
-    Output ONLY the summary text.
+    Output ONLY the summary text. No markdown, no fences.
   `;
 
   try {
     const model = getModel();
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3 },
+      generationConfig: { temperature: 0.1 },
     });
     return result.response.text().trim() || fallback;
   } catch (error) {
@@ -256,15 +288,17 @@ export async function generateMorningBrief(stats: {
     - At-Risk Segment Customers: ${stats.atRiskCount}
     - Customers not contacted/messaged in last 30+ days: ${stats.notMessaged30Days}
 
+    CRITICAL: You MUST use the EXACT numbers and percentages provided in the statistics above. DO NOT hallucinate, invent, or estimate any other metrics. Your briefing must be 100% factually accurate to the provided statistics. Any deviation is a failure.
+
     Briefing should be insights-driven and action-oriented (e.g., recommend reaching out to at-risk or un-messaged cohorts).
-    Output ONLY the briefing paragraph.
+    Output ONLY the briefing paragraph. No markdown formatting, no fences.
   `;
 
   try {
     const model = getModel();
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4 },
+      generationConfig: { temperature: 0.2 },
     });
     return result.response.text().trim() || fallback;
   } catch (error) {

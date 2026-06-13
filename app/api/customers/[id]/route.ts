@@ -68,9 +68,75 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       data: profile,
     });
   } catch (error) {
-    console.error("[GET CUSTOMER PROFILE API ERROR]", error);
+    console.error("[GET CUSTOMER PROFILE PROFILE DETAILS ERROR]", error);
     return NextResponse.json(
       { error: "Failed to retrieve customer profile details" },
+      { status: 400 }
+    );
+  }
+}
+
+const OrderCreateSchema = z.object({
+  amount: z.coerce.number().min(1),
+  channel: z.enum(["online", "store", "app"]),
+  items: z.array(z.object({
+    name: z.string().min(1),
+    price: z.coerce.number().min(1),
+    qty: z.coerce.number().min(1),
+  })).min(1),
+});
+
+/**
+ * Handles POST /api/customers/[id] requests (manual order addition).
+ */
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  try {
+    const params = await props.params;
+    const validatedParams = ParamsSchema.parse(params);
+    
+    const body = await req.json();
+    const validatedBody = OrderCreateSchema.parse(body);
+
+    const customer = await getCustomerById(validatedParams.id);
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    const { insertOrder } = require("@/lib/db");
+    const { computeRfmScores } = require("@/lib/rfm");
+
+    // 1. Insert manual order
+    await insertOrder({
+      customer_id: customer.id,
+      amount: validatedBody.amount,
+      channel: validatedBody.channel,
+      items: validatedBody.items,
+    });
+
+    // 2. Recalculate RFM scoring distribution
+    await computeRfmScores();
+
+    // 3. Fetch updated customer details
+    const [updatedCustomer, orders, communications] = await Promise.all([
+      getCustomerById(customer.id),
+      getCustomerOrders(customer.id),
+      getCustomerCommunications(customer.id),
+    ]);
+
+    const profile = {
+      ...updatedCustomer,
+      ai_summary: getAiShopperInsight(updatedCustomer?.rfm_segment, updatedCustomer?.name || "", updatedCustomer?.city),
+      orders,
+      communications,
+    };
+
+    return NextResponse.json({
+      data: profile,
+    });
+  } catch (error: any) {
+    console.error("[POST CUSTOMER ORDER API ERROR]", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to add purchase order" },
       { status: 400 }
     );
   }

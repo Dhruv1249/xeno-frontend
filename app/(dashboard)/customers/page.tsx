@@ -97,6 +97,14 @@ export default function CustomersPage() {
   const [isClient, setIsClient] = useState(false);
   const [chartType, setChartType] = useState<"rfm" | "city" | "segment">("rfm");
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(0);
+  const itemsPerPage = 50;
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [search, selectedSegment, selectedCity]);
+
   // Modal Display Toggles
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -124,7 +132,7 @@ export default function CustomersPage() {
 
     async function fetchCustomers() {
       try {
-        const res = await fetch("/api/customers");
+        const res = await fetch("/api/customers?limit=10000");
         if (res.ok) {
           const json = await res.json();
           if (json.data) setCustomers(json.data);
@@ -232,7 +240,14 @@ export default function CustomersPage() {
 
   const cities = Array.from(new Set(customers.map((c) => c.city)));
 
-  const scatterData: ScatterPoint[] = customers.map((c) => ({
+  // Calculate paginated sub-list
+  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
+  const paginatedCustomers = filteredCustomers.slice(
+    currentPage * itemsPerPage,
+    (currentPage + 1) * itemsPerPage
+  );
+
+  const scatterData: ScatterPoint[] = filteredCustomers.map((c) => ({
     name: c.name,
     recency: c.rfm_recency_days ?? 0,
     frequency: c.rfm_frequency ?? 0,
@@ -355,9 +370,9 @@ export default function CustomersPage() {
                 ) : chartType === "city" ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={
-                      Array.from(new Set(customers.map((c) => c.city || "Other"))).map((city) => ({
+                      Array.from(new Set(filteredCustomers.map((c) => c.city || "Other"))).map((city) => ({
                         name: city.toUpperCase(),
-                        shoppers: customers.filter((c) => c.city === city).length,
+                        shoppers: filteredCustomers.filter((c) => c.city === city).length,
                       }))
                     } margin={{ top: 10, right: 30, bottom: 20, left: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" vertical={false} />
@@ -374,7 +389,7 @@ export default function CustomersPage() {
                         data={
                           ["Champion", "Loyal", "At Risk", "Lost", "New"].map((seg) => ({
                             name: seg.toUpperCase(),
-                            value: customers.filter((c) => c.rfm_segment === seg).length,
+                            value: filteredCustomers.filter((c) => c.rfm_segment === seg).length,
                           }))
                         }
                         cx="50%"
@@ -505,8 +520,8 @@ export default function CustomersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-text/10 text-xs font-medium">
-                  {filteredCustomers.length > 0 ? (
-                    filteredCustomers.map((customer) => (
+                  {paginatedCustomers.length > 0 ? (
+                    paginatedCustomers.map((customer) => (
                       <tr key={customer.id} className="hover:bg-text/[0.02]">
                         <td className="px-6 py-4">
                           <div className="font-bold text-text">{customer.name}</div>
@@ -558,6 +573,38 @@ export default function CustomersPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-text/10 pt-4 mt-2">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-text-muted">
+                  Showing {currentPage * itemsPerPage + 1} - {Math.min((currentPage + 1) * itemsPerPage, filteredCustomers.length)} of {filteredCustomers.length} Shoppers
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={currentPage === 0}
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                    className="shadow-extruded hover:shadow-recessed disabled:opacity-40 disabled:pointer-events-none transition-all text-xs cursor-pointer"
+                  >
+                    Previous
+                  </Button>
+                  <span className="font-mono text-xs text-text px-2">
+                    {currentPage + 1} / {totalPages}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={(currentPage + 1) * itemsPerPage >= filteredCustomers.length}
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                    className="shadow-extruded hover:shadow-recessed disabled:opacity-40 disabled:pointer-events-none transition-all text-xs cursor-pointer"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -656,6 +703,26 @@ export default function CustomersPage() {
             <p className="text-[11px] text-text-muted leading-relaxed font-sans">
               Provide `customers.csv` and `orders.csv` containing shopper files to run bulk ingestion.
             </p>
+            <div className="bg-surface border border-text/5 p-3 rounded-lg shadow-recessed flex justify-between items-center gap-4 text-[10px] font-mono">
+              <span className="text-text-muted uppercase tracking-wider">Example Templates:</span>
+              <div className="flex gap-2">
+                <a
+                  href="/customers_example.csv"
+                  download="customers_example.csv"
+                  className="text-primary hover:underline font-bold"
+                >
+                  CUSTOMERS.CSV
+                </a>
+                <span className="text-text-muted">|</span>
+                <a
+                  href="/orders_example.csv"
+                  download="orders_example.csv"
+                  className="text-primary hover:underline font-bold"
+                >
+                  ORDERS.CSV
+                </a>
+              </div>
+            </div>
             <form onSubmit={handleUploadCsv} className="space-y-4 font-sans text-xs">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-text-muted uppercase">Customers CSV *</label>

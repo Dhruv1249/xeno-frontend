@@ -10,11 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCustomers } from "@/lib/db";
+import { getCustomers, getCustomersCount } from "@/lib/db";
 import { z } from "zod";
 
 const QuerySchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(50),
+  limit: z.coerce.number().min(1).max(10000).default(50),
   offset: z.coerce.number().min(0).default(0),
   search: z.string().default(""),
   rfmSegment: z.string().default("All"),
@@ -43,8 +43,15 @@ export async function GET(req: NextRequest) {
       validated.city
     );
 
+    const total = await getCustomersCount(
+      validated.search,
+      validated.rfmSegment,
+      validated.city
+    );
+
     return NextResponse.json({
       data: customers,
+      total,
     });
   } catch (error) {
     console.error("[GET CUSTOMERS API ERROR]", error);

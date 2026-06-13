@@ -110,7 +110,7 @@ async function seed() {
   for (let i = 0; i < 500; i++) {
     const { name, gender } = generateIndianNameAndGender();
     const city = faker.helpers.arrayElement(CITIES);
-    const email = `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`;
+    const email = `${name.toLowerCase().replace(/\s+/g, ".")}.${i + 1}@example.com`;
     const phone = `+91 ${faker.helpers.arrayElement(["9", "8", "7", "6"])}${faker.string.numeric(9)}`;
 
     const customer = await upsertCustomer({
