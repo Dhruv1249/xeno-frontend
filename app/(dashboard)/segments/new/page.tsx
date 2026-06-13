@@ -122,7 +122,6 @@ function NewSegmentPageContent() {
 
   // Debounced trigger
   useEffect(() => {
-    if (rules.length === 0) return;
     const timer = setTimeout(() => {
       updateAudienceCount(rules, operator);
     }, 400);
@@ -448,7 +447,7 @@ function NewSegmentPageContent() {
                   Add Filter Row
                 </Button>
 
-                <Button variant="success" onClick={handleSaveSegment} disabled={savingSegment || rules.length === 0}>
+                <Button variant="success" onClick={handleSaveSegment} disabled={savingSegment}>
                   {savingSegment ? "Saving..." : "Save Segment"}
                 </Button>
               </div>

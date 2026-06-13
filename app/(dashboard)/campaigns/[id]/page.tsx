@@ -18,14 +18,26 @@ import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Sparkles, Check, CheckCheck, XCircle, Clock } from "lucide-react";
+import {
+  ArrowLeft,
+  Sparkles,
+  Check,
+  CheckCheck,
+  XCircle,
+  Clock,
+} from "lucide-react";
 import {
   AreaChart,
   Area,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 
@@ -65,15 +77,17 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 72,
     click_count: 48,
     failed_count: 2,
-    message_template: "Hi {{customer_name}}! As one of our most valued shoppers, we've credited an exclusive ₹500 voucher to your account. Shop our new collection now: xeno.co/exclusive",
-    ai_summary: "Strong performing campaign. Delivered an exceptional 84.7% open rate and 56.4% click-through rate over WhatsApp. Minimal failure rate.",
+    message_template:
+      "Hi {{customer_name}}! As one of our most valued shoppers, we've credited an exclusive ₹500 voucher to your account. Shop our new collection now: xeno.co/exclusive",
+    ai_summary:
+      "Strong performing campaign. Delivered an exceptional 84.7% open rate and 56.4% click-through rate over WhatsApp. Minimal failure rate.",
     chart_data: [
       { time: "12:00", sent: 85, delivered: 40, opened: 10, clicked: 2 },
       { time: "12:15", sent: 85, delivered: 78, opened: 35, clicked: 12 },
       { time: "12:30", sent: 85, delivered: 83, opened: 55, clicked: 25 },
       { time: "12:45", sent: 85, delivered: 83, opened: 68, clicked: 38 },
       { time: "13:00", sent: 85, delivered: 83, opened: 72, clicked: 48 },
-    ]
+    ],
   },
   camp2: {
     id: "camp2",
@@ -86,15 +100,17 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 58,
     click_count: 12,
     failed_count: 15,
-    message_template: "Hey {{customer_name}}, we haven't seen you in a while! Use code COMEBACK20 for 20% off your next order. Only valid for 48 hours.",
-    ai_summary: "Win-back campaign executed over SMS. 40% open rate, with 8.2% click-through. Failure rate was slightly high (10.3%) due to inactive contacts.",
+    message_template:
+      "Hey {{customer_name}}, we haven't seen you in a while! Use code COMEBACK20 for 20% off your next order. Only valid for 48 hours.",
+    ai_summary:
+      "Win-back campaign executed over SMS. 40% open rate, with 8.2% click-through. Failure rate was slightly high (10.3%) due to inactive contacts.",
     chart_data: [
       { time: "14:30", sent: 145, delivered: 90, opened: 15, clicked: 1 },
       { time: "14:45", sent: 145, delivered: 115, opened: 32, clicked: 4 },
       { time: "15:00", sent: 145, delivered: 125, opened: 48, clicked: 8 },
       { time: "15:15", sent: 145, delivered: 130, opened: 54, clicked: 10 },
       { time: "15:30", sent: 145, delivered: 130, opened: 58, clicked: 12 },
-    ]
+    ],
   },
   default: {
     id: "camp3",
@@ -107,13 +123,15 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 4,
     click_count: 1,
     failed_count: 0,
-    message_template: "Hurry {{customer_name}}! 🚨 Monsoon Flash Sale is live. Get 40% off everything at Xeno.",
-    ai_summary: "Campaign is currently running. Streams of delivery receipts are arriving in real-time.",
+    message_template:
+      "Hurry {{customer_name}}! 🚨 Monsoon Flash Sale is live. Get 40% off everything at Xeno.",
+    ai_summary:
+      "Campaign is currently running. Streams of delivery receipts are arriving in real-time.",
     chart_data: [
       { time: "16:00", sent: 68, delivered: 2, opened: 0, clicked: 0 },
       { time: "16:05", sent: 68, delivered: 12, opened: 4, clicked: 1 },
-    ]
-  }
+    ],
+  },
 };
 
 interface FeedEvent {
@@ -136,13 +154,30 @@ export default function CampaignAnalyticsPage() {
   const [campaign, setCampaign] = useState<AnalyticsCampaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
-  
+
   // AI summary states
   const [aiSummary, setAiSummary] = useState("");
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
 
   // SSE event source reference
   const sseRef = useRef<EventSource | null>(null);
+
+  // User adjustable tick rate (polling rate and ticker interval)
+  const [tickRate, setTickRate] = useState<number>(3000);
+  const [showLiveFeed, setShowLiveFeed] = useState<boolean>(true);
+  const [chartType, setChartType] = useState<"area" | "line" | "bar">("area");
+  const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>({
+    delivered: true,
+    opened: true,
+    clicked: true,
+  });
+
+  const campaignRef = useRef<AnalyticsCampaign | null>(null);
+
+  // Keep campaignRef updated for effect callbacks without restarting connections
+  useEffect(() => {
+    campaignRef.current = campaign;
+  }, [campaign]);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -152,6 +187,7 @@ export default function CampaignAnalyticsPage() {
           const json = await res.json();
           if (json.data) {
             setCampaign(json.data);
+            setShowLiveFeed(json.data.status !== "completed");
             setLoading(false);
             return;
           }
@@ -159,9 +195,11 @@ export default function CampaignAnalyticsPage() {
       } catch (error) {
         console.error(error);
       }
-      
+
       // Fallback
-      setCampaign(MOCK_CAMPAIGN_DETAILS[id] || MOCK_CAMPAIGN_DETAILS.default);
+      const fallback = MOCK_CAMPAIGN_DETAILS[id] || MOCK_CAMPAIGN_DETAILS.default;
+      setCampaign(fallback);
+      setShowLiveFeed(fallback.status !== "completed");
       setLoading(false);
     }
 
@@ -187,7 +225,7 @@ export default function CampaignAnalyticsPage() {
             {
               id: data.communication_id || Math.random().toString(),
               customer_name: data.customer_name || "Shopper",
-              channel: campaign?.channel || "whatsapp",
+              channel: campaignRef.current?.channel || "whatsapp",
               event_type: data.event_type,
               timestamp: new Date().toLocaleTimeString(),
             },
@@ -211,22 +249,44 @@ export default function CampaignAnalyticsPage() {
     };
 
     eventSource.onerror = () => {
-      console.warn("SSE connection closed. Normal behavior on serverless resets.");
+      console.warn(
+        "SSE connection closed. Normal behavior on serverless resets.",
+      );
     };
 
-    // Client-side visual ticker simulation (SIGNATURE element)
+    // Client-side visual ticker simulation
     // Triggers mock arrivals periodically to ensure the double ticks animate beautifully
-    const names = ["Aarav Sharma", "Ananya Iyer", "Rohan Verma", "Priya Nair", "Aditya Rao", "Kavya Patel", "Meera Joshi", "Diya Gupta", "Kabir Singh", "Rahul Bose"];
-    const events: ("sent" | "delivered" | "opened" | "clicked" | "failed")[] = ["sent", "delivered", "opened", "clicked", "failed"];
+    const names = [
+      "Aarav Sharma",
+      "Ananya Iyer",
+      "Rohan Verma",
+      "Priya Nair",
+      "Aditya Rao",
+      "Kavya Patel",
+      "Meera Joshi",
+      "Diya Gupta",
+      "Kabir Singh",
+      "Rahul Bose",
+    ];
+    const events: ("sent" | "delivered" | "opened" | "clicked" | "failed")[] = [
+      "sent",
+      "delivered",
+      "opened",
+      "clicked",
+      "failed",
+    ];
 
     const interval = setInterval(() => {
+      const currentCamp = campaignRef.current;
+      if (!currentCamp || currentCamp.status === "completed") return;
+
       const randomName = names[Math.floor(Math.random() * names.length)];
       const randomEvent = events[Math.floor(Math.random() * events.length)];
 
       const newSimulatedEvent: FeedEvent = {
         id: Math.random().toString(),
         customer_name: randomName,
-        channel: campaign?.channel || "whatsapp",
+        channel: currentCamp.channel || "whatsapp",
         event_type: randomEvent,
         timestamp: new Date().toLocaleTimeString(),
       };
@@ -237,19 +297,58 @@ export default function CampaignAnalyticsPage() {
       setCampaign((curr) => {
         if (!curr || curr.status === "completed") return curr;
         const copy = { ...curr };
-        if (randomEvent === "delivered") copy.delivered_count = Math.min(copy.sent_count, copy.delivered_count + 1);
-        if (randomEvent === "opened") copy.open_count = Math.min(copy.delivered_count, copy.open_count + 1);
-        if (randomEvent === "clicked") copy.click_count = Math.min(copy.open_count, copy.click_count + 1);
-        if (randomEvent === "failed") copy.failed_count = Math.min(copy.sent_count, copy.failed_count + 1);
+
+        // Ensure sent_count is non-zero so percentages don't error
+        if (copy.sent_count === 0) copy.sent_count = 100;
+
+        if (randomEvent === "delivered")
+          copy.delivered_count = Math.min(
+            copy.sent_count,
+            copy.delivered_count + 1,
+          );
+        if (randomEvent === "opened")
+          copy.open_count = Math.min(copy.delivered_count, copy.open_count + 1);
+        if (randomEvent === "clicked")
+          copy.click_count = Math.min(copy.open_count, copy.click_count + 1);
+        if (randomEvent === "failed")
+          copy.failed_count = Math.min(copy.sent_count, copy.failed_count + 1);
         return copy;
       });
-    }, 2500);
+    }, tickRate);
 
     return () => {
       eventSource.close();
       clearInterval(interval);
     };
-  }, [id, loading, campaign]);
+  }, [id, loading, tickRate]);
+
+  // Poll actual database stats periodically while the campaign is actively running
+  useEffect(() => {
+    if (!id || loading || !campaign || campaign.status !== "running") return;
+
+    const statsInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/campaigns/${id}/stats`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            setCampaign((curr) => {
+              if (!curr) return json.data;
+              // Preserve the name and template but fetch fresh database counts & chart intervals
+              return {
+                ...curr,
+                ...json.data,
+              };
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error polling database stats:", err);
+      }
+    }, tickRate);
+
+    return () => clearInterval(statsInterval);
+  }, [id, loading, campaign?.status, tickRate]);
 
   // Summarize Campaign via Gemini API
   const handleSummarize = async () => {
@@ -264,7 +363,7 @@ export default function CampaignAnalyticsPage() {
         // Mock review
         setTimeout(() => {
           setAiSummary(
-            `Campaign has achieved an excellent open rate of ${Math.round((campaign.open_count / campaign.sent_count) * 100)}% and a click rate of ${Math.round((campaign.click_count / campaign.sent_count) * 100)}%. We recommend dispatching win-back offers over WhatsApp around 7 PM on weekdays for maximized engagement.`
+            `Campaign has achieved an excellent open rate of ${Math.round((campaign.open_count / campaign.sent_count) * 100)}% and a click rate of ${Math.round((campaign.click_count / campaign.sent_count) * 100)}%. We recommend dispatching win-back offers over WhatsApp around 7 PM on weekdays for maximized engagement.`,
           );
         }, 600);
       }
@@ -289,9 +388,15 @@ export default function CampaignAnalyticsPage() {
   }
 
   // Calculate percentages
-  const openRate = campaign.sent_count ? Math.round((campaign.open_count / campaign.sent_count) * 100) : 0;
-  const clickRate = campaign.sent_count ? Math.round((campaign.click_count / campaign.sent_count) * 100) : 0;
-  const deliverRate = campaign.sent_count ? Math.round((campaign.delivered_count / campaign.sent_count) * 100) : 0;
+  const openRate = campaign.sent_count
+    ? Math.round((campaign.open_count / campaign.sent_count) * 100)
+    : 0;
+  const clickRate = campaign.sent_count
+    ? Math.round((campaign.click_count / campaign.sent_count) * 100)
+    : 0;
+  const deliverRate = campaign.sent_count
+    ? Math.round((campaign.delivered_count / campaign.sent_count) * 100)
+    : 0;
 
   // Visual double ticks matcher for Signature element
   const renderDoubleTicks = (type: string) => {
@@ -303,7 +408,9 @@ export default function CampaignAnalyticsPage() {
       case "opened":
         return <CheckCheck className="w-3.5 h-3.5 text-success" />;
       case "clicked":
-        return <CheckCheck className="w-3.5 h-3.5 text-primary shadow-[0_0_8px_#006666] animate-pulse" />;
+        return (
+          <CheckCheck className="w-3.5 h-3.5 text-primary shadow-[0_0_8px_#006666] animate-pulse" />
+        );
       case "failed":
         return <XCircle className="w-3.5 h-3.5 text-danger" />;
       default:
@@ -315,7 +422,10 @@ export default function CampaignAnalyticsPage() {
     <div className="space-y-8 w-full">
       {/* Back button */}
       <div>
-        <Link href="/campaigns" className="inline-flex items-center gap-2 font-sans font-bold text-xs uppercase tracking-wider text-text-muted hover:text-text">
+        <Link
+          href="/campaigns"
+          className="inline-flex items-center gap-2 font-sans font-bold text-xs uppercase tracking-wider text-text-muted hover:text-text"
+        >
           <ArrowLeft className="w-4 h-4" /> Back to Campaigns
         </Link>
       </div>
@@ -330,7 +440,17 @@ export default function CampaignAnalyticsPage() {
             {campaign.name}
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {campaign.status === "completed" && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setShowLiveFeed((prev) => !prev)}
+              className="font-sans font-bold text-xs uppercase tracking-wider"
+            >
+              {showLiveFeed ? "Hide Ticker Log" : "Show Dispatch Ticker"}
+            </Button>
+          )}
           <Badge
             variant={campaign.status === "completed" ? "success" : "primary"}
             type="recessed"
@@ -341,67 +461,317 @@ export default function CampaignAnalyticsPage() {
         </div>
       </div>
 
+      {/* Simulation Speed & Tick Rate controls */}
+      {campaign.status === "running" && (
+        <div className="bg-surface border border-primary/20 p-4 rounded-xl shadow-recessed flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+              Live Simulation speed / Tick rate:
+            </span>
+            <Badge variant="primary" type="recessed" className="font-mono text-xs">
+              {(tickRate / 1000).toFixed(1)}s
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            {[500, 1000, 2000, 3000, 5000].map((rate) => (
+              <button
+                key={rate}
+                onClick={() => setTickRate(rate)}
+                className={`
+                  px-3 py-1.5 rounded font-sans font-bold text-[10px] uppercase tracking-wider transition-all duration-150 cursor-pointer
+                  ${
+                    tickRate === rate
+                      ? "bg-primary text-surface shadow-recessed"
+                      : "bg-surface border border-text/10 text-text-muted hover:text-text hover:border-text/30"
+                  }
+                `}
+              >
+                {rate === 500 ? "0.5s (FAST)" : rate === 1000 ? "1s" : `${rate / 1000}s`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 select-none">
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
-          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Sent</div>
-          <div className="font-mono text-2xl font-bold text-text mt-1">{campaign.sent_count}</div>
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+            Sent
+          </div>
+          <div className="font-mono text-2xl font-bold text-text mt-1">
+            {campaign.sent_count}
+          </div>
         </div>
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
-          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">Delivered %</div>
-          <div className="font-mono text-2xl font-bold text-text mt-1">{deliverRate}%</div>
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+            Delivered %
+          </div>
+          <div className="font-mono text-2xl font-bold text-text mt-1">
+            {deliverRate}%
+          </div>
         </div>
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
-          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-success">Opened %</div>
-          <div className="font-mono text-2xl font-bold text-success mt-1">{openRate}%</div>
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-success">
+            Opened %
+          </div>
+          <div className="font-mono text-2xl font-bold text-success mt-1">
+            {openRate}%
+          </div>
         </div>
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
-          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-primary">Clicked %</div>
-          <div className="font-mono text-2xl font-bold text-primary mt-1">{clickRate}%</div>
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-primary">
+            Clicked %
+          </div>
+          <div className="font-mono text-2xl font-bold text-primary mt-1">
+            {clickRate}%
+          </div>
         </div>
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center col-span-2 md:col-span-1">
-          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-danger">Failed</div>
-          <div className="font-mono text-2xl font-bold text-danger mt-1">{campaign.failed_count}</div>
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-danger">
+            Failed
+          </div>
+          <div className="font-mono text-2xl font-bold text-danger mt-1">
+            {campaign.failed_count}
+          </div>
         </div>
       </div>
 
       {/* Split Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
         {/* Left Column: Recharts Line Chart */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className={showLiveFeed ? "lg:col-span-7 space-y-6 animate-fadeIn" : "lg:col-span-12 space-y-6 animate-fadeIn"}>
           <Card>
-            <CardHeader className="border-b border-text/10 pb-4">
-              <CardTitle className="uppercase tracking-widest text-xs font-bold text-primary">
-                Engagement Curves Over Time
-              </CardTitle>
+            <CardHeader className="border-b border-text/10 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="uppercase tracking-widest text-xs font-bold text-primary">
+                  Engagement Curves Over Time
+                </CardTitle>
+              </div>
+
+              {/* Chart type & curve controls */}
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  value={chartType}
+                  onChange={(e) => setChartType(e.target.value as any)}
+                  className="bg-surface border border-text/10 rounded px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
+                >
+                  <option value="area">AREA CHART</option>
+                  <option value="line">LINE CHART</option>
+                  <option value="bar">BAR CHART</option>
+                </select>
+
+                <div className="flex items-center gap-2 border-l border-text/10 pl-3 select-none">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleMetrics.delivered}
+                      onChange={(e) => setVisibleMetrics(prev => ({ ...prev, delivered: e.target.checked }))}
+                      className="accent-primary cursor-pointer w-3 h-3"
+                    />
+                    <span className="text-[9px] font-sans font-bold uppercase tracking-wider text-text-muted">DELIV</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleMetrics.opened}
+                      onChange={(e) => setVisibleMetrics(prev => ({ ...prev, opened: e.target.checked }))}
+                      className="accent-success cursor-pointer w-3 h-3"
+                    />
+                    <span className="text-[9px] font-sans font-bold uppercase tracking-wider text-success">OPEN</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleMetrics.clicked}
+                      onChange={(e) => setVisibleMetrics(prev => ({ ...prev, clicked: e.target.checked }))}
+                      className="accent-primary cursor-pointer w-3 h-3"
+                    />
+                    <span className="text-[9px] font-sans font-bold uppercase tracking-wider text-primary">CLICK</span>
+                  </label>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="pt-6 font-mono text-[10px]">
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={campaign.chart_data || []}>
-                    <defs>
-                      <linearGradient id="colorDelivered" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#1E2938" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#1E2938" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorOpened" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00A63D" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#00A63D" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorClicked" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#006666" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#006666" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" vertical={false} />
-                    <XAxis dataKey="time" stroke="#57534E" tickLine={false} />
-                    <YAxis stroke="#57534E" tickLine={false} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="delivered" stroke="#1E2938" fillOpacity={1} fill="url(#colorDelivered)" name="Delivered" />
-                    <Area type="monotone" dataKey="opened" stroke="#00A63D" fillOpacity={1} fill="url(#colorOpened)" name="Opened" />
-                    <Area type="monotone" dataKey="clicked" stroke="#006666" strokeWidth={2} fillOpacity={1} fill="url(#colorClicked)" name="Clicked" />
-                  </AreaChart>
+                  {chartType === "area" ? (
+                    <AreaChart data={campaign.chart_data || []}>
+                      <defs>
+                        <linearGradient
+                          id="colorDelivered"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#1E2938"
+                            stopOpacity={0.1}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#1E2938"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                        <linearGradient
+                          id="colorOpened"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#00A63D"
+                            stopOpacity={0.1}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#00A63D"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                        <linearGradient
+                          id="colorClicked"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="5%"
+                            stopColor="#006666"
+                            stopOpacity={0.2}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor="#006666"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e0e0e0"
+                        vertical={false}
+                      />
+                      <XAxis dataKey="time" stroke="#57534E" tickLine={false} />
+                      <YAxis stroke="#57534E" tickLine={false} />
+                      <Tooltip />
+                      {visibleMetrics.delivered && (
+                        <Area
+                          type="monotone"
+                          dataKey="delivered"
+                          stroke="#1E2938"
+                          fillOpacity={1}
+                          fill="url(#colorDelivered)"
+                          name="Delivered"
+                        />
+                      )}
+                      {visibleMetrics.opened && (
+                        <Area
+                          type="monotone"
+                          dataKey="opened"
+                          stroke="#00A63D"
+                          fillOpacity={1}
+                          fill="url(#colorOpened)"
+                          name="Opened"
+                        />
+                      )}
+                      {visibleMetrics.clicked && (
+                        <Area
+                          type="monotone"
+                          dataKey="clicked"
+                          stroke="#006666"
+                          strokeWidth={2}
+                          fillOpacity={1}
+                          fill="url(#colorClicked)"
+                          name="Clicked"
+                        />
+                      )}
+                    </AreaChart>
+                  ) : chartType === "line" ? (
+                    <LineChart data={campaign.chart_data || []}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e0e0e0"
+                        vertical={false}
+                      />
+                      <XAxis dataKey="time" stroke="#57534E" tickLine={false} />
+                      <YAxis stroke="#57534E" tickLine={false} />
+                      <Tooltip />
+                      <Legend />
+                      {visibleMetrics.delivered && (
+                        <Line
+                          type="monotone"
+                          dataKey="delivered"
+                          stroke="#1E2938"
+                          strokeWidth={2}
+                          name="Delivered"
+                          activeDot={{ r: 5 }}
+                        />
+                      )}
+                      {visibleMetrics.opened && (
+                        <Line
+                          type="monotone"
+                          dataKey="opened"
+                          stroke="#00A63D"
+                          strokeWidth={2}
+                          name="Opened"
+                          activeDot={{ r: 5 }}
+                        />
+                      )}
+                      {visibleMetrics.clicked && (
+                        <Line
+                          type="monotone"
+                          dataKey="clicked"
+                          stroke="#006666"
+                          strokeWidth={3}
+                          name="Clicked"
+                          activeDot={{ r: 7 }}
+                        />
+                      )}
+                    </LineChart>
+                  ) : (
+                    <BarChart data={campaign.chart_data || []}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#e0e0e0"
+                        vertical={false}
+                      />
+                      <XAxis dataKey="time" stroke="#57534E" tickLine={false} />
+                      <YAxis stroke="#57534E" tickLine={false} />
+                      <Tooltip />
+                      <Legend />
+                      {visibleMetrics.delivered && (
+                        <Bar
+                          dataKey="delivered"
+                          fill="#1E2938"
+                          name="Delivered"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      )}
+                      {visibleMetrics.opened && (
+                        <Bar
+                          dataKey="opened"
+                          fill="#00A63D"
+                          name="Opened"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      )}
+                      {visibleMetrics.clicked && (
+                        <Bar
+                          dataKey="clicked"
+                          fill="#006666"
+                          name="Clicked"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      )}
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               </div>
             </CardContent>
@@ -416,18 +786,24 @@ export default function CampaignAnalyticsPage() {
                   AI Campaign Performance Review
                 </CardTitle>
               </div>
-              <Button size="sm" variant="primary" disabled={aiSummaryLoading} onClick={handleSummarize}>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={aiSummaryLoading}
+                onClick={handleSummarize}
+              >
                 {aiSummaryLoading ? "Generating..." : "Generate Summary"}
               </Button>
             </CardHeader>
             <CardContent className="pt-4 text-xs font-sans">
-              {(aiSummary || campaign.ai_summary) ? (
+              {aiSummary || campaign.ai_summary ? (
                 <p className="text-text-muted leading-relaxed italic border-l-2 border-primary/45 pl-3">
                   &ldquo;{aiSummary || campaign.ai_summary}&rdquo;
                 </p>
               ) : (
                 <div className="text-text-muted italic py-1 text-center">
-                  Click &apos;Generate Summary&apos; to retrieve a Gemini-driven evaluation of this campaign&apos;s dispatch rates.
+                  Click &apos;Generate Summary&apos; to retrieve a Gemini-driven
+                  evaluation of this campaign&apos;s dispatch rates.
                 </div>
               )}
             </CardContent>
@@ -435,60 +811,71 @@ export default function CampaignAnalyticsPage() {
         </div>
 
         {/* Right Column: SIGNATURE LIVE TICKER */}
-        <div className="lg:col-span-5 space-y-6">
-          <Card>
-            <CardHeader className="border-b border-text/10 pb-4 flex flex-row items-center justify-between space-y-0">
-              <div className="flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-primary animate-pulse" />
-                <CardTitle className="uppercase tracking-widest text-xs font-bold">
-                  Double-Tick Dispatch Ticker
-                </CardTitle>
-              </div>
-              <span className="w-2.5 h-2.5 rounded-full bg-success animate-ping" />
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="font-mono text-[9px] uppercase tracking-wider text-text-muted mb-3">
-                Live Receipt Callbacks:
-              </div>
+        {showLiveFeed && (
+          <div className="lg:col-span-5 space-y-6 animate-fadeIn">
+            <Card>
+              <CardHeader className="border-b border-text/10 pb-4 flex flex-row items-center justify-between space-y-0">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-primary animate-pulse" />
+                  <CardTitle className="uppercase tracking-widest text-xs font-bold">
+                    Double-Tick Dispatch Ticker
+                  </CardTitle>
+                </div>
+                <span className="w-2.5 h-2.5 rounded-full bg-success animate-ping" />
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-text-muted mb-3">
+                  Live Receipt Callbacks:
+                </div>
 
-              {/* Ticker Feed Area */}
-              <div className="space-y-2.5 h-[360px] overflow-y-auto pr-1">
-                {feedEvents.length > 0 ? (
-                  feedEvents.map((evt) => (
-                    <div
-                      key={evt.id}
-                      className="bg-surface border border-text/5 p-3 rounded-lg shadow-recessed flex items-center justify-between gap-3 animate-[slideIn_0.25s_ease-out]"
-                    >
-                      <div className="space-y-0.5">
-                        <div className="font-sans font-bold text-xs text-text">{evt.customer_name}</div>
-                        <div className="font-mono text-[9px] text-text-muted uppercase tracking-wider">
-                          via {evt.channel} • {evt.timestamp}
+                {/* Ticker Feed Area */}
+                <div className="space-y-2.5 h-[360px] overflow-y-auto pr-1">
+                  {feedEvents.length > 0 ? (
+                    feedEvents.map((evt) => (
+                      <div
+                        key={evt.id}
+                        className="bg-surface border border-text/5 p-3 rounded-lg shadow-recessed flex items-center justify-between gap-3 animate-[slideIn_0.25s_ease-out]"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="font-sans font-bold text-xs text-text">
+                            {evt.customer_name}
+                          </div>
+                          <div className="font-mono text-[9px] text-text-muted uppercase tracking-wider">
+                            via {evt.channel} • {evt.timestamp}
+                          </div>
+                        </div>
+
+                        {/* Interactive visual ticks */}
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="font-mono text-[9px] font-bold uppercase tracking-wider"
+                            style={{
+                              color:
+                                evt.event_type === "clicked"
+                                  ? "#006666"
+                                  : evt.event_type === "failed"
+                                    ? "#FF2157"
+                                    : "#57534E",
+                            }}
+                          >
+                            {evt.event_type}
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-surface border border-text/5 shadow-extruded flex items-center justify-center">
+                            {renderDoubleTicks(evt.event_type)}
+                          </div>
                         </div>
                       </div>
-                      
-                      {/* Interactive visual ticks */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[9px] font-bold uppercase tracking-wider" style={{
-                          color: evt.event_type === "clicked" ? "#006666" : evt.event_type === "failed" ? "#FF2157" : "#57534E"
-                        }}>
-                          {evt.event_type}
-                        </span>
-                        <div className="w-7 h-7 rounded-lg bg-surface border border-text/5 shadow-extruded flex items-center justify-center">
-                          {renderDoubleTicks(evt.event_type)}
-                        </div>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-text-muted text-center italic py-16">
+                      Waiting for delivery callbacks to stream in...
                     </div>
-                  ))
-                ) : (
-                  <div className="h-full flex items-center justify-center text-text-muted text-center italic py-16">
-                    Waiting for delivery callbacks to stream in...
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

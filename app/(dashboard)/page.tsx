@@ -42,29 +42,42 @@ export default function DashboardPage() {
       );
     }, 0);
 
+    const today = new Date().toISOString().split("T")[0];
+    const cachedText = localStorage.getItem("crm_brief_text");
+    const cachedDate = localStorage.getItem("crm_brief_date");
+
     async function fetchBrief() {
       try {
         const res = await fetch("/api/ai/brief");
         if (res.ok) {
           const json = await res.json();
           setBrief(json.brief);
+          localStorage.setItem("crm_brief_text", json.brief);
+          localStorage.setItem("crm_brief_date", today);
         } else {
           // Mock fallback brief if API fails or isn't built yet by backend
-          setBrief(
-            "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today."
-          );
+          const fallbackText = "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today.";
+          setBrief(fallbackText);
+          localStorage.setItem("crm_brief_text", fallbackText);
+          localStorage.setItem("crm_brief_date", today);
         }
       } catch (error) {
         console.error(error);
-        setBrief(
-          "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today."
-        );
+        const fallbackText = "Retail activity is running steady. We currently have 500 registered customers. There are 2 active campaigns out in the wild with a 42% average open rate. 68 customers have transitioned into the 'At Risk' category over the past 30 days — consider sending a Loyalty Reward win-back campaign today.";
+        setBrief(fallbackText);
+        localStorage.setItem("crm_brief_text", fallbackText);
+        localStorage.setItem("crm_brief_date", today);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchBrief();
+    if (cachedDate === today && cachedText) {
+      setBrief(cachedText);
+      setLoading(false);
+    } else {
+      fetchBrief();
+    }
 
     return () => clearTimeout(timeTimer);
   }, []);

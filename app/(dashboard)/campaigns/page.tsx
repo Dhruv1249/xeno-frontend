@@ -145,7 +145,7 @@ export default function CampaignsListPage() {
                   <div className="md:col-span-2 bg-surface border border-text/5 p-3 rounded-lg shadow-recessed flex items-start gap-2 relative overflow-hidden">
                     <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5 animate-pulse" />
                     <p className="font-sans text-[11px] text-text-muted leading-relaxed italic">
-                      &ldquo;{camp.ai_summary || "Summarizing campaign results..."}&rdquo;
+                      &ldquo;{camp.ai_summary || (camp.status === "running" ? "Campaign is currently running and gathering engagement stats..." : "No summary generated yet. Open the analytics view to generate one.")}&rdquo;
                     </p>
                   </div>
                 </>

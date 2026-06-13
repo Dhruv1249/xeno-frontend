@@ -36,10 +36,70 @@ export default function NewCampaignPage() {
   // Campaign Form State
   const [campaignName, setCampaignName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
+  const [segments, setSegments] = useState<{ id: string; name: string; count: number }[]>(MOCK_TARGET_SEGMENTS);
   const [targetSegmentId, setTargetSegmentId] = useState("s1");
+  const [targetMode, setTargetMode] = useState<"all" | "segment">("all");
   const [selectedChannel, setSelectedChannel] = useState<"whatsapp" | "sms" | "email" | "rcs">("whatsapp");
   const [messageText, setMessageText] = useState("");
   const [selectedTone, setSelectedTone] = useState<"friendly" | "urgent" | "exclusive">("friendly");
+
+  // Load real segments from database API
+  useEffect(() => {
+    async function fetchSegments() {
+      try {
+        const res = await fetch("/api/segments");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.length > 0) {
+            let fetchedSegments = json.data;
+
+            // Check if "All Shoppers" is missing
+            let allSeg = fetchedSegments.find((s: any) => s.name === "All Shoppers");
+            if (!allSeg) {
+              const createRes = await fetch("/api/segments", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name: "All Shoppers",
+                  description: "All registered shoppers in the database.",
+                  filter_rules: { operator: "AND", rules: [] }
+                })
+              });
+              if (createRes.ok) {
+                const createdJson = await createRes.json();
+                if (createdJson.data) {
+                  fetchedSegments = [createdJson.data, ...fetchedSegments];
+                  allSeg = createdJson.data;
+                }
+              }
+            }
+
+            const mapped = fetchedSegments.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              count: s.customer_count,
+            }));
+            setSegments(mapped);
+
+            // Default targetSegmentId
+            if (mapped.length > 0) {
+              const defaultSeg = allSeg ? mapped.find((s: any) => s.id === allSeg.id) : mapped[0];
+              if (defaultSeg) {
+                setTargetSegmentId(defaultSeg.id);
+                setTargetMode("all");
+              } else {
+                setTargetSegmentId(mapped[0].id);
+                setTargetMode("segment");
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load segments", error);
+      }
+    }
+    fetchSegments();
+  }, []);
 
   // AI Recommendation State (Pre-Send Advisor)
   const [recommendation, setRecommendation] = useState<AIRecommendation | null>(null);
@@ -56,6 +116,27 @@ export default function NewCampaignPage() {
     setSelectedChannel(tmpl.channel);
     setMessageText(tmpl.message_scaffold);
     setSelectedTone(tmpl.tone);
+
+    // Set target segment based on template's preset
+    const preset = tmpl.preset_segment;
+    if (preset) {
+      const matched = segments.find(
+        (s) => s.name.toLowerCase().includes(preset.toLowerCase())
+      );
+      if (matched) {
+        setTargetSegmentId(matched.id);
+        if (matched.name === "All Shoppers") {
+          setTargetMode("all");
+        } else {
+          setTargetMode("segment");
+        }
+      } else {
+        setTargetMode("segment");
+      }
+    } else {
+      setTargetMode("segment");
+    }
+
     setStep(2); // Auto advance to step 2
   };
 
@@ -107,7 +188,7 @@ export default function NewCampaignPage() {
   const handleAIDraft = async () => {
     setDraftLoading(true);
     try {
-      const segName = MOCK_TARGET_SEGMENTS.find(s => s.id === targetSegmentId)?.name || "Shoppers";
+      const segName = segments.find(s => s.id === targetSegmentId)?.name || "Shoppers";
       const res = await fetch("/api/ai/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -151,7 +232,7 @@ export default function NewCampaignPage() {
         segment_id: targetSegmentId,
         channel: selectedChannel,
         message_template: messageText,
-        status: status,
+        status: status === "running" ? "draft" : "scheduled",
       };
 
       const res = await fetch("/api/campaigns", {
@@ -162,23 +243,37 @@ export default function NewCampaignPage() {
 
       if (res.ok) {
         const json = await res.json();
+        const campaignId = json.data.id;
+
+        if (status === "running") {
+          // Trigger the actual simulator dispatch
+          const sendRes = await fetch(`/api/campaigns/${campaignId}/send`, {
+            method: "POST",
+          });
+
+          if (!sendRes.ok) {
+            const errData = await sendRes.json();
+            throw new Error(errData.error || "Failed to dispatch campaign via simulator");
+          }
+        }
+
         // Redirect to Campaign Analytics of newly created campaign
-        router.push(`/campaigns/${json.data.id}`);
+        router.push(`/campaigns/${campaignId}`);
       } else {
         // Mock successful save and redirect to mock campaign analytics
         setTimeout(() => {
           router.push(`/campaigns/camp3`);
         }, 800);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      router.push(`/campaigns/camp3`);
+      alert(error.message || "Failed dispatching campaign");
     } finally {
       setSendingCampaign(false);
     }
   };
 
-  const currentSegmentCount = MOCK_TARGET_SEGMENTS.find(s => s.id === targetSegmentId)?.count || 0;
+  const currentSegmentCount = segments.find(s => s.id === targetSegmentId)?.count || 0;
 
   return (
     <div className="space-y-8 w-full">
@@ -270,22 +365,91 @@ export default function NewCampaignPage() {
                 />
               </div>
 
-              <div className="space-y-1">
+              {/* Target Mode Toggle */}
+              <div className="space-y-2">
                 <label className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
-                  Select Target Segment
+                  Audience Targeting Mode
                 </label>
-                <select
-                  value={targetSegmentId}
-                  onChange={(e) => setTargetSegmentId(e.target.value)}
-                  className="w-full bg-surface border border-text/10 rounded-lg p-2.5 text-xs font-mono tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
-                >
-                  {MOCK_TARGET_SEGMENTS.map((seg) => (
-                    <option key={seg.id} value={seg.id}>
-                      {seg.name.toUpperCase()} ({seg.count} SHOPPERS)
-                    </option>
-                  ))}
-                </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetMode("all");
+                      const allSeg = segments.find((s) => s.name === "All Shoppers");
+                      if (allSeg) setTargetSegmentId(allSeg.id);
+                    }}
+                    className={`
+                      p-3 rounded-lg border font-sans font-bold text-xs uppercase tracking-wider text-center transition-all duration-150 cursor-pointer
+                      ${
+                        targetMode === "all"
+                          ? "text-primary border-primary/45 shadow-recessed"
+                          : "text-text-muted border-text/5 shadow-extruded hover:shadow-extruded-hover hover:text-text"
+                      }
+                    `}
+                  >
+                    Send to All Shoppers
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetMode("segment");
+                      const otherSeg = segments.find((s) => s.name !== "All Shoppers");
+                      if (otherSeg) setTargetSegmentId(otherSeg.id);
+                    }}
+                    className={`
+                      p-3 rounded-lg border font-sans font-bold text-xs uppercase tracking-wider text-center transition-all duration-150 cursor-pointer
+                      ${
+                        targetMode === "segment"
+                          ? "text-primary border-primary/45 shadow-recessed"
+                          : "text-text-muted border-text/5 shadow-extruded hover:shadow-extruded-hover hover:text-text"
+                      }
+                    `}
+                  >
+                    Target Specific Segment
+                  </button>
+                </div>
               </div>
+
+              {targetMode === "segment" ? (
+                <div className="space-y-1 animate-fadeIn">
+                  <label className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
+                    Select Target Segment
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={targetSegmentId}
+                      onChange={(e) => setTargetSegmentId(e.target.value)}
+                      className="flex-1 bg-surface border border-text/10 rounded-lg p-2.5 text-xs font-mono tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
+                    >
+                      {segments
+                        .filter((s) => s.name !== "All Shoppers")
+                        .map((seg) => (
+                          <option key={seg.id} value={seg.id}>
+                            {seg.name.toUpperCase()} ({seg.count} SHOPPERS)
+                          </option>
+                        ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => router.push("/segments/new")}
+                      className="shrink-0 cursor-pointer"
+                    >
+                      Create Segment
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 p-3.5 bg-primary/5 border border-primary/10 rounded-lg text-xs font-sans text-text-muted">
+                    <Info className="w-4 h-4 text-primary shrink-0" />
+                    <span>
+                      Campaign will target the entire customer database. No segment filtering will be applied.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Shopper count badge */}
               <div className="flex items-center gap-2 bg-surface border border-text/5 p-3.5 rounded-lg shadow-recessed">
