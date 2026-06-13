@@ -76,6 +76,7 @@ export interface Campaign {
   click_count: number;
   failed_count: number;
   ai_summary?: string | null;
+  ai_recommendation?: AIRecommendation | null;
   created_at: string;
 }
 
@@ -83,6 +84,7 @@ export interface Communication {
   id: string;
   campaign_id: string;
   campaign_name: string;
+  customer_id?: string;
   message: string;
   channel: string;
   status: "queued" | "sent" | "delivered" | "failed" | "opened" | "clicked";
