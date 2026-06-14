@@ -6,62 +6,65 @@ This document describes the high-level system architecture, data flow, deploymen
 
 ## 1. System Architecture Diagram
 
-This diagram visualizes the decoupled Next.js CRM service, CockroachDB datastore, Gemini LLM Copilot, and the Rust async channel simulator callback loop.
+This simplified diagram maps the system components, deployment environments, and communication flows. It is structured to show a clean top-to-bottom layout:
 
 ```mermaid
 graph TD
-    subgraph Client [Marketer Browser Interface]
-        UI[React / Next.js SPA]
-        SSE_Client[EventSource SSE Client]
+    %% Styling Nodes
+    classDef client fill:#f0f7f4,stroke:#3d7068,stroke-width:2px;
+    classDef crm fill:#fbfbfb,stroke:#2d3748,stroke-width:2px;
+    classDef db fill:#f0f4f8,stroke:#2b6cb0,stroke-width:2px;
+    classDef ai fill:#faf5ff,stroke:#6b46c1,stroke-width:2px;
+    classDef sim fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
+
+    subgraph Browser [Marketer Browser Interface]
+        UI[Next.js Web UI]:::client
+        Ticker[SSE Live Ticker]:::client
     end
 
-    subgraph CRM_Service [CRM Core Next.js API - Deployed on Vercel]
-        Ingest[CSV Ingestion API]
-        Segment[Chat Segment Engine]
-        Campaign[Campaign Builder API]
-        Receipts[Webhook Receipts API]
-        SSE_Feed[SSE Feed Emitter]
+    subgraph CRM [CRM Backend API - Deployed on Vercel]
+        Ingest[Ingest API]:::crm
+        Segment[Segment Engine]:::crm
+        Campaign[Campaign Composer]:::crm
+        Receipts[Receipts Webhook]:::crm
+        SSE[SSE Streamer]:::crm
     end
 
-    subgraph DB [CockroachDB Serverless]
-        Customers[(Customers & RFM)]
-        Orders[(Shopper Orders)]
-        Events[(Communication Events)]
+    subgraph Storage [CockroachDB Serverless]
+        DB[(Shoppers, Orders, & Events)]:::db
     end
 
-    subgraph AI [Google Gemini 3.1 Flash Lite]
-        LLM[Gemini API]
+    subgraph AI_Service [Gemini API]
+        Gemini[Gemini 3.1 Flash Lite]:::ai
     end
 
-    subgraph Simulator [Rust Channel Simulator - Deployed on GCP Cloud Run]
-        RustServer[Actix-web Endpoint]
-        TokioQueue[Async Tokio Task Queue]
-        RetryLoop[Backoff Retry Loop]
+    subgraph Channel [Rust Channel Simulator - GCP Cloud Run]
+        Rust[Actix-web Endpoint]:::sim
+        Tokio[Tokio Callback Queue]:::sim
     end
 
-    %% Client Interactions
-    UI -->|Ingest CSV / Compose| Ingest
-    UI -->|NL Chat Segments| Segment
-    UI -->|Trigger Campaign| Campaign
-    SSE_Client <-->|Live Ticker SSE Stream| SSE_Feed
+    %% 1. Browser to CRM
+    UI -->|1. Upload CSVs| Ingest
+    UI -->|2. Build Segments| Segment
+    UI -->|3. Dispatch Campaigns| Campaign
+    Ticker <-->|8. Low-Overhead Event Stream| SSE
 
-    %% CRM Database Operations
-    Ingest -->|Write| Customers
-    Ingest -->|Write| Orders
-    Segment -->|Parameterized SQL| Customers
-    Receipts -->|Deduplicated Write| Events
-    Receipts -->|Emit Event| SSE_Feed
+    %% 2. CRM to Storage (Reads/Writes)
+    Ingest -->|Write| DB
+    Segment -->|Query| DB
+    Campaign -->|Queue comms| DB
+    Receipts -->|Update statuses| DB
 
-    %% AI Integrations
-    Segment <-->|Prompt to JSON logic| LLM
-    Campaign <-->|Pre-send Advice / Drafts| LLM
-    Receipts <-->|Post-Campaign summary| LLM
+    %% 3. CRM to Gemini LLM
+    Segment <-->|NL to Segment Rules| Gemini
+    Campaign <-->|Pre-send Advice / Drafts| Gemini
+    Receipts <-->|Generate summary| Gemini
 
-    %% CRM-Simulator Callback Loop
-    Campaign -->|POST /send 202 Accepted| RustServer
-    RustServer -->|Spawn tasks| TokioQueue
-    TokioQueue -->|POST callback receipts| Receipts
-    RetryLoop -->|Network failure retries| Receipts
+    %% 4. Campaign Dispatch Callback Loop
+    Campaign -->|4. Trigger Campaign| Rust
+    Rust -->|5. Spawn async simulators| Tokio
+    Tokio -->|6. Callback Receipts| Receipts
+    Receipts -->|7. Push Events| SSE
 ```
 
 ---
