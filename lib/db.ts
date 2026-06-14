@@ -448,7 +448,7 @@ export async function getCampaigns(): Promise<Campaign[]> {
     open_count: Number(r.open_count),
     click_count: Number(r.click_count),
     failed_count: Number(r.failed_count),
-  }));
+  } as unknown as Campaign));
 }
 
 /**
@@ -479,7 +479,7 @@ export async function getCampaignById(id: string): Promise<Campaign | null> {
     open_count: Number(rows[0].open_count),
     click_count: Number(rows[0].click_count),
     failed_count: Number(rows[0].failed_count),
-  };
+  } as unknown as Campaign;
 }
 
 /**

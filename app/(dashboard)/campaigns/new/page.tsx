@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TemplateLibrary, CampaignTemplate } from "@/components/campaign/TemplateLibrary";
 import { ArrowLeft, Sparkles, AlertCircle, Info, Send, Calendar, ChevronRight, ChevronLeft, Users } from "lucide-react";
-import { AIRecommendation } from "@/types";
+import { AIRecommendation, Segment } from "@/types";
 
 /**
  * Renders the Campaign Creation wizard interface.
