@@ -107,7 +107,7 @@ function NewCampaignPageContent() {
             let fetchedSegments = json.data;
 
             // Check if "All Shoppers" is missing
-            let allSeg = fetchedSegments.find((s: any) => s.name === "All Shoppers");
+            let allSeg = fetchedSegments.find((s: Segment) => s.name === "All Shoppers");
             if (!allSeg) {
               const createRes = await fetch("/api/segments", {
                 method: "POST",
@@ -127,16 +127,16 @@ function NewCampaignPageContent() {
               }
             }
 
-            const mapped = fetchedSegments.map((s: any) => ({
+            const mapped = fetchedSegments.map((s: Segment) => ({
               id: s.id,
               name: s.name,
-              count: s.customer_count,
+              count: s.customer_count ?? 0,
             }));
             setSegments(mapped);
 
             // Default targetSegmentId
             if (mapped.length > 0) {
-              const defaultSeg = allSeg ? mapped.find((s: any) => s.id === allSeg.id) : mapped[0];
+              const defaultSeg = allSeg ? mapped.find((s: { id: string }) => s.id === allSeg.id) : mapped[0];
               if (defaultSeg) {
                 setTargetSegmentId(defaultSeg.id);
                 setTargetMode("all");
@@ -353,9 +353,10 @@ function NewCampaignPageContent() {
           router.push(`/campaigns/camp3`);
         }, 800);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      alert(error.message || "Failed dispatching campaign");
+      const err = error as Error;
+      alert(err.message || "Failed dispatching campaign");
     } finally {
       setSendingCampaign(false);
     }

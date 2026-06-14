@@ -86,10 +86,11 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
     return NextResponse.json({
       data: updated,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[PUT CAMPAIGN DETAIL API ERROR]", error);
+    const err = error as Error;
     return NextResponse.json(
-      { error: error.message || "Failed to update campaign details" },
+      { error: err.message || "Failed to update campaign details" },
       { status: 400 }
     );
   }

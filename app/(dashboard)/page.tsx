@@ -24,8 +24,24 @@ import { Sparkles, Users, MessageSquare, PlusCircle, ArrowUpRight } from "lucide
  * @returns React page element
  */
 export default function DashboardPage() {
-  const [brief, setBrief] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(true);
+  const [brief, setBrief] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const today = new Date().toISOString().split("T")[0];
+      const cachedText = localStorage.getItem("crm_brief_text");
+      const cachedDate = localStorage.getItem("crm_brief_date");
+      if (cachedDate === today && cachedText) return cachedText;
+    }
+    return "";
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const today = new Date().toISOString().split("T")[0];
+      const cachedText = localStorage.getItem("crm_brief_text");
+      const cachedDate = localStorage.getItem("crm_brief_date");
+      if (cachedDate === today && cachedText) return false;
+    }
+    return true;
+  });
   const [currentTime, setCurrentTime] = useState<string>("");
   const [dashStats, setDashStats] = useState<{
     totalCustomers: number;
@@ -88,10 +104,7 @@ export default function DashboardPage() {
       }
     }
 
-    if (cachedDate === today && cachedText) {
-      setBrief(cachedText);
-      setLoading(false);
-    } else {
+    if (cachedDate !== today || !cachedText) {
       fetchBrief();
     }
 

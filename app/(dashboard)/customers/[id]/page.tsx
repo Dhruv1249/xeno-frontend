@@ -80,9 +80,10 @@ export default function CustomerProfilePage() {
         setChannel("online");
         setItems([{ name: "", price: 0, qty: 1 }]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setOrderError(err.message || "An unexpected error occurred");
+      const error = err as Error;
+      setOrderError(error.message || "An unexpected error occurred");
     } finally {
       setSubmittingOrder(false);
     }
@@ -414,7 +415,7 @@ export default function CustomerProfilePage() {
                 </label>
                 <select
                   value={channel}
-                  onChange={(e) => setChannel(e.target.value as any)}
+                  onChange={(e) => setChannel(e.target.value as "online" | "store" | "app")}
                   className="bg-surface border border-text/5 rounded p-2 text-xs font-sans text-text shadow-recessed focus:outline-none focus:ring-1 focus:ring-primary w-full"
                 >
                   <option value="online">Online Store</option>

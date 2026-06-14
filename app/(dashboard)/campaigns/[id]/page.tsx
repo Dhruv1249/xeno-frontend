@@ -49,6 +49,14 @@ interface ChartTimePoint {
   clicked: number;
 }
 
+interface CampaignEventLogItem {
+  id: string;
+  customer_name: string;
+  channel: string;
+  event_type: "sent" | "delivered" | "opened" | "clicked" | "failed";
+  occurred_at: string;
+}
+
 interface AnalyticsCampaign {
   id: string;
   name: string;
@@ -66,13 +74,7 @@ interface AnalyticsCampaign {
   created_at?: string;
   completed_at?: string;
   chart_data: ChartTimePoint[];
-  events_log?: {
-    id: string;
-    customer_name: string;
-    channel: string;
-    event_type: string;
-    occurred_at: string;
-  }[];
+  events_log?: CampaignEventLogItem[];
 }
 
 const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
@@ -165,6 +167,7 @@ export default function CampaignAnalyticsPage() {
   const [campaign, setCampaign] = useState<AnalyticsCampaign | null>(null);
   const [displayedCampaign, setDisplayedCampaign] = useState<AnalyticsCampaign | null>(null);
   const [loading, setLoading] = useState(true);
+  const [renderTime] = useState(() => Date.now());
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
   const [replayedEvents, setReplayedEvents] = useState<FeedEvent[]>([]);
 
@@ -183,10 +186,7 @@ export default function CampaignAnalyticsPage() {
   const [inputValue, setInputValue] = useState<string>("3.0");
   const [showLiveFeed, setShowLiveFeed] = useState<boolean>(true);
 
-  // Sync manual input value text with tickRate changes
-  useEffect(() => {
-    setInputValue((tickRate / 1000).toFixed(1));
-  }, [tickRate]);
+
   const [chartType, setChartType] = useState<"area" | "line" | "bar">("area");
   const [visibleMetrics, setVisibleMetrics] = useState<Record<string, boolean>>({
     delivered: true,
@@ -202,6 +202,8 @@ export default function CampaignAnalyticsPage() {
     campaignRef.current = campaign;
   }, [campaign]);
 
+
+
   useEffect(() => {
     async function fetchDetails() {
       try {
@@ -216,7 +218,7 @@ export default function CampaignAnalyticsPage() {
 
             // Populate the ticker log with historical logs
             if (json.data.events_log) {
-              const mappedEvents = json.data.events_log.map((evt: any) => ({
+              const mappedEvents = json.data.events_log.map((evt: CampaignEventLogItem) => ({
                 id: `${evt.id}-${evt.event_type}`,
                 customer_name: evt.customer_name,
                 channel: evt.channel,
@@ -245,11 +247,13 @@ export default function CampaignAnalyticsPage() {
     }
   }, [id]);
 
-  // Replay historical logs for completed campaigns when the ticker is shown
-  useEffect(() => {
+  // Toggle live feed playback manually (using an event handler instead of a synchronizing effect to prevent cascading render warnings)
+  const handleToggleLiveFeed = () => {
     if (!campaign || campaign.status !== "completed") return;
+    const nextShow = !showLiveFeed;
+    setShowLiveFeed(nextShow);
 
-    if (showLiveFeed) {
+    if (nextShow) {
       // Reset displayed campaign counts and clear ticker log for playback
       setFeedEvents([]);
       setReplayedEvents([]);
@@ -263,7 +267,7 @@ export default function CampaignAnalyticsPage() {
       });
 
       if (campaign.events_log) {
-        const mappedEvents = campaign.events_log.map((evt: any) => ({
+        const mappedEvents = campaign.events_log.map((evt: CampaignEventLogItem) => ({
           id: `${evt.id}-${evt.event_type}`,
           customer_name: evt.customer_name,
           channel: evt.channel,
@@ -279,7 +283,7 @@ export default function CampaignAnalyticsPage() {
       setReplayedEvents([]);
       eventBufferRef.current = [];
     }
-  }, [showLiveFeed, campaign]);
+  };
 
   // Ticker loop: pulls events from buffer and updates UI state at the selected tickRate (ONLY for completed campaign replay)
   useEffect(() => {
@@ -299,17 +303,37 @@ export default function CampaignAnalyticsPage() {
 
           // Track replayed events to build chart data dynamically
           setReplayedEvents((prev) => [...prev, nextEvent]);
-          // Stat counters are owned by the DB poll — no local increment here
-          // to avoid double-counting with the 1-second stats refresh.
+
+          // Dynamically increment stats counters in displayedCampaign during replay
+          setDisplayedCampaign((curr) => {
+            if (!curr) return curr;
+            const updated = { ...curr };
+            if (nextEvent.event_type === "sent") {
+              updated.sent_count = (updated.sent_count || 0) + 1;
+            } else if (nextEvent.event_type === "delivered") {
+              updated.delivered_count = (updated.delivered_count || 0) + 1;
+            } else if (nextEvent.event_type === "opened") {
+              updated.open_count = (updated.open_count || 0) + 1;
+            } else if (nextEvent.event_type === "clicked") {
+              updated.click_count = (updated.click_count || 0) + 1;
+            } else if (nextEvent.event_type === "failed") {
+              updated.failed_count = (updated.failed_count || 0) + 1;
+            }
+            return updated;
+          });
         }
       } else {
         clearInterval(interval);
+        // Restore final campaign counts when replay completes
+        setDisplayedCampaign(campaign);
+        setReplayedEvents([]);
+        eventBufferRef.current = [];
         setShowLiveFeed(false);
       }
     }, tickRate);
 
     return () => clearInterval(interval);
-  }, [loading, campaign?.id, campaign?.status, showLiveFeed, tickRate]);
+  }, [loading, campaign, showLiveFeed, tickRate]);
 
   // Connect to SSE Live Feed (play live events immediately at the current rate as they arrive)
   useEffect(() => {
@@ -352,7 +376,7 @@ export default function CampaignAnalyticsPage() {
     return () => {
       eventSource.close();
     };
-  }, [id, loading, campaign?.status]);
+  }, [id, loading, campaign]);
 
 
 
@@ -372,7 +396,7 @@ export default function CampaignAnalyticsPage() {
             }
             setDisplayedCampaign((curr) => {
               if (!curr) return json.data;
-              // DB is the sole source of truth for stat counters \u2014 apply directly.
+              // DB is the sole source of truth for stat counters — apply directly.
               return {
                 ...curr,
                 ...json.data,
@@ -386,7 +410,7 @@ export default function CampaignAnalyticsPage() {
     }, 1000); // Poll every 1s (independent of replay tick rate) to keep active campaign stats updated
 
     return () => clearInterval(statsInterval);
-  }, [id, loading, campaign?.status]);
+  }, [id, loading, campaign]);
 
   // Summarize Campaign via Gemini API
   const handleSummarize = async () => {
@@ -418,11 +442,11 @@ export default function CampaignAnalyticsPage() {
 
     const startTime = campaign.sent_at
       ? new Date(campaign.sent_at).getTime()
-      : (campaign.created_at ? new Date(campaign.created_at).getTime() : Date.now());
+      : (campaign.created_at ? new Date(campaign.created_at).getTime() : renderTime);
 
     const endTime = campaign.completed_at
       ? new Date(campaign.completed_at).getTime()
-      : Date.now();
+      : renderTime;
 
     const timeSpan = endTime - startTime;
     const step = timeSpan > 0 ? timeSpan / 4 : 60 * 1000;
@@ -468,7 +492,7 @@ export default function CampaignAnalyticsPage() {
       });
     }
     return chartPoints;
-  }, [campaign, replayedEvents]);
+  }, [campaign, replayedEvents, renderTime]);
 
   // Use dynamic chart data for completed campaign replay mode, else use DB chart data
   const isReplaying = campaign?.status === "completed" && showLiveFeed;
@@ -547,7 +571,7 @@ export default function CampaignAnalyticsPage() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => setShowLiveFeed((prev) => !prev)}
+              onClick={handleToggleLiveFeed}
               className="font-sans font-bold text-xs uppercase tracking-wider"
             >
               {showLiveFeed ? "Hide Ticker Log" : "Show Dispatch Ticker"}
@@ -582,7 +606,11 @@ export default function CampaignAnalyticsPage() {
               max="5000"
               step="100"
               value={tickRate}
-              onChange={(e) => setTickRate(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setTickRate(val);
+                setInputValue((val / 1000).toFixed(1));
+              }}
               className="flex-1 accent-primary cursor-pointer h-1.5 bg-text/10 rounded-lg appearance-none outline-none"
             />
             {/* Direct Number Input */}
@@ -688,7 +716,7 @@ export default function CampaignAnalyticsPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <select
                   value={chartType}
-                  onChange={(e) => setChartType(e.target.value as any)}
+                  onChange={(e) => setChartType(e.target.value as "area" | "line" | "bar")}
                   className="bg-surface border border-text/10 rounded px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
                 >
                   <option value="area">AREA CHART</option>

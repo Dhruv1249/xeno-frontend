@@ -21,13 +21,10 @@ import { faker } from "@faker-js/faker";
 import {
   pool,
   runSchemaMigration,
-  upsertCustomer,
-  insertOrder,
   insertSegment,
   insertCampaign,
   insertCommunication,
   insertEvent,
-  updateSegmentCustomerCount,
   getCustomersBySegmentRules,
 } from "./db";
 import { computeRfmScores } from "./rfm";
@@ -77,7 +74,6 @@ function generateOrderDate(): Date {
     // Re-roll to force festive season concentration
     const targetMonths = [0, 9, 10, 11];
     const targetMonth = faker.helpers.arrayElement(targetMonths);
-    const targetYear = orderTime.getFullYear();
     orderTime.setMonth(targetMonth);
   }
 

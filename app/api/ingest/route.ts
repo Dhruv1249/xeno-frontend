@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
         id: record.id || undefined,
         customer_id: record.customer_id,
         amount: parseFloat(record.amount),
-        channel: (record.channel as any) || "online",
+        channel: (record.channel as "online" | "store" | "app") || "online",
         items,
         created_at: record.created_at || undefined,
       });

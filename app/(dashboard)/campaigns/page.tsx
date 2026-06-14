@@ -21,12 +21,42 @@ import { Send, Sparkles, AlertCircle, PlusCircle, BarChart3 } from "lucide-react
 import { Campaign } from "@/types";
 
 /**
+ * Ghost Skeleton Loader representing placeholder campaign cards during load.
+ */
+function CampaignsSkeleton() {
+  return (
+    <div className="space-y-6">
+      {[1, 2, 3].map((i) => (
+        <Card key={i} className="p-6 space-y-4 select-none">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-text/10 pb-4">
+            <div className="space-y-2 flex-1">
+              <div className="h-5 w-1/3 bg-text/10 rounded animate-pulse" />
+              <div className="h-3.5 w-1/4 bg-text/10 rounded animate-pulse" />
+            </div>
+            <div className="h-8 w-24 bg-text/10 rounded animate-pulse" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-2 items-center">
+            <div className="md:col-span-2 grid grid-cols-4 gap-2">
+              {[1, 2, 3, 4].map((j) => (
+                <div key={j} className="h-12 bg-text/10 rounded animate-pulse" />
+              ))}
+            </div>
+            <div className="md:col-span-2 h-12 bg-text/5 rounded animate-pulse animate-pulseDelay" />
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Lists campaign records and statuses.
  *
  * @returns React page element
  */
 export default function CampaignsListPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchCampaigns() {
@@ -38,6 +68,8 @@ export default function CampaignsListPage() {
         }
       } catch (error) {
         console.error("Failed fetching live campaigns, falling back to mock", error);
+      } finally {
+        setLoading(false);
       }
     }
     fetchCampaigns();
@@ -87,7 +119,9 @@ export default function CampaignsListPage() {
 
       {/* Campaigns list */}
       <div className="space-y-6">
-        {campaigns.length === 0 ? (
+        {loading ? (
+          <CampaignsSkeleton />
+        ) : campaigns.length === 0 ? (
           <Card className="p-12 text-center flex flex-col items-center justify-center space-y-4">
             <AlertCircle className="w-12 h-12 text-text-muted opacity-40 animate-pulse" />
             <div>

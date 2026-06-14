@@ -113,6 +113,7 @@ export default function CustomersPage() {
       }
       return [...prev, seg];
     });
+    setCurrentPage(0);
   };
 
   // Pagination State
@@ -146,10 +147,7 @@ export default function CustomersPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Reset to page 0 whenever filters change
-  useEffect(() => {
-    setCurrentPage(0);
-  }, [debouncedSearch, selectedSegments, selectedCity]);
+
 
   // Fetch custom segments from the database
   useEffect(() => {
@@ -167,9 +165,13 @@ export default function CustomersPage() {
     loadSegments();
   }, []);
 
+  useEffect(() => {
+    const t = setTimeout(() => setIsClient(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+
   // Fetch the current page from the server whenever page or filters change
   useEffect(() => {
-    setIsClient(true);
     async function fetchPage() {
       setIsLoading(true);
       try {
@@ -371,7 +373,7 @@ export default function CustomersPage() {
             <div className="shrink-0">
               <select
                 value={chartType}
-                onChange={(e) => setChartType(e.target.value as any)}
+                onChange={(e) => setChartType(e.target.value as "rfm" | "city" | "segment")}
                 className="bg-surface border border-text/10 rounded px-2.5 py-1 text-xs font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
               >
                 <option value="rfm">RFM SCATTER MATRIX</option>
@@ -503,7 +505,10 @@ export default function CustomersPage() {
                   type="text"
                   placeholder="SEARCH NAME, EMAIL, OR CITY..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(0);
+                  }}
                   className="w-full bg-surface border border-text/10 rounded-lg py-2 pl-9 pr-4 text-xs font-mono tracking-wider shadow-recessed outline-none focus:border-primary focus-visible:ring-1 focus-visible:ring-primary"
                 />
               </div>
@@ -514,7 +519,10 @@ export default function CustomersPage() {
                   <MapPin className="w-4 h-4 text-text-muted" />
                   <select
                     value={selectedCity}
-                    onChange={(e) => setSelectedCity(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedCity(e.target.value);
+                      setCurrentPage(0);
+                    }}
                     className="bg-surface border border-text/10 rounded-lg p-2 text-xs font-mono uppercase tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
                   >
                     <option value="All">ALL CITIES</option>
@@ -624,6 +632,7 @@ export default function CustomersPage() {
                       setSelectedSegments([]);
                       setSelectedCity("All");
                       setSearch("");
+                      setCurrentPage(0);
                     }}
                     leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
                   >

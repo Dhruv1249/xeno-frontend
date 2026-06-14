@@ -23,12 +23,55 @@ import { Segment, FilterRule } from "@/types";
 
 
 /**
+ * Ghost Skeleton Loader representing placeholder segment cards during load.
+ */
+function SegmentsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      {[1, 2, 3, 4].map((i) => (
+        <Card key={i} className="p-6 space-y-6 select-none flex flex-col justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-1">
+                <Layers className="w-4 h-4 text-text/10 animate-pulse" />
+                <div className="h-5 w-1/2 bg-text/10 rounded animate-pulse" />
+              </div>
+              <div className="h-6 w-20 bg-text/10 rounded-full animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <div className="h-3 w-full bg-text/10 rounded animate-pulse" />
+              <div className="h-3 w-5/6 bg-text/10 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="space-y-2 pt-2 border-t border-text/5">
+            <div className="h-3 w-1/4 bg-text/10 rounded animate-pulse" />
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[1, 2].map((j) => (
+                <div key={j} className="h-6 w-16 bg-text/10 rounded animate-pulse" />
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-between items-center pt-4 mt-2 border-t border-text/5">
+            <div className="h-3 w-20 bg-text/10 rounded animate-pulse" />
+            <div className="flex gap-2">
+              <div className="h-8 w-12 bg-text/10 rounded animate-pulse" />
+              <div className="h-8 w-20 bg-text/10 rounded animate-pulse" />
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Lists current shopper segments and their details.
  *
  * @returns React page element
  */
 export default function SegmentsListPage() {
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchSegments() {
@@ -40,6 +83,8 @@ export default function SegmentsListPage() {
         }
       } catch (error) {
         console.error("Failed fetching live segments, falling back to mock", error);
+      } finally {
+        setLoading(false);
       }
     }
     fetchSegments();
@@ -94,7 +139,9 @@ export default function SegmentsListPage() {
       </div>
 
       {/* Segment Grid */}
-      {segments.length === 0 ? (
+      {loading ? (
+        <SegmentsSkeleton />
+      ) : segments.length === 0 ? (
         <Card className="p-12 text-center flex flex-col items-center justify-center space-y-4">
           <Layers className="w-12 h-12 text-text-muted opacity-40 animate-pulse" />
           <div>

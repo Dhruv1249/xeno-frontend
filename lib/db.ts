@@ -14,6 +14,27 @@ import { Pool } from "pg";
 import { Customer, Order, Segment, Campaign, Communication } from "../types";
 import { buildSegmentSql } from "./segment-engine";
 
+interface CampaignDbRow {
+  id: string;
+  name: string;
+  segment_id: string;
+  segment_name: string;
+  channel: string;
+  message_template: string;
+  status: string;
+  scheduled_at: Date | null;
+  sent_at: Date | null;
+  completed_at: Date | null;
+  ai_recommendation: unknown;
+  ai_summary: string | null;
+  created_at: Date;
+  sent_count: string;
+  delivered_count: string;
+  open_count: string;
+  click_count: string;
+  failed_count: string;
+}
+
 // Setup connection pool. Fallback to local docker postgres connection if DATABASE_URL is not set.
 // max=30: local Postgres on Docker with 16GB/14 cores handles 30 concurrent connections easily.
 // CockroachDB Serverless users should lower this to 5.
@@ -419,7 +440,7 @@ export async function getCampaigns(): Promise<Campaign[]> {
     GROUP BY c.id, s.name
     ORDER BY c.created_at DESC
   `;
-  const rows = await executeQuery<any>(queryText);
+  const rows = await executeQuery<CampaignDbRow>(queryText);
   return rows.map((r) => ({
     ...r,
     sent_count: Number(r.sent_count),
@@ -449,7 +470,7 @@ export async function getCampaignById(id: string): Promise<Campaign | null> {
     WHERE c.id = $1
     GROUP BY c.id, s.name
   `;
-  const rows = await executeQuery<any>(queryText, [id]);
+  const rows = await executeQuery<CampaignDbRow>(queryText, [id]);
   if (!rows[0]) return null;
   return {
     ...rows[0],
@@ -671,7 +692,6 @@ export async function getCustomersForSend(segmentId: string): Promise<Customer[]
   const segment = await getSegmentById(segmentId);
   if (!segment) return [];
   
-  const { buildSegmentSql } = require("./segment-engine");
   const { whereClause, params } = buildSegmentSql(segment.filter_rules);
   return getCustomersBySegmentRules(whereClause, params);
 }
@@ -736,7 +756,11 @@ export async function getCommunicationWithCustomerName(id: string): Promise<{
     JOIN customers cust ON c.customer_id = cust.id
     WHERE c.id = $1
   `;
-  const rows = await executeQuery<any>(queryText, [id]);
+  const rows = await executeQuery<{
+    communication_id: string;
+    customer_name: string;
+    campaign_id: string;
+  }>(queryText, [id]);
   return rows[0] || null;
 }
 
@@ -801,7 +825,13 @@ export async function getCampaignEvents(campaignId: string): Promise<{
     ORDER BY e.occurred_at DESC
     LIMIT 1000
   `;
-  return executeQuery<any>(queryText, [campaignId]);
+  return executeQuery<{
+    id: string;
+    customer_name: string;
+    channel: string;
+    event_type: string;
+    occurred_at: Date;
+  }>(queryText, [campaignId]);
 }
 
 

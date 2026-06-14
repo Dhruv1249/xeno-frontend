@@ -10,7 +10,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCustomers, getCustomersCount } from "@/lib/db";
+import { getCustomers, getCustomersCount, upsertCustomer, insertOrder, getCustomerById } from "@/lib/db";
+import { computeRfmScores } from "@/lib/rfm";
 import { z } from "zod";
 
 const QuerySchema = z.object({
@@ -79,8 +80,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validated = CustomerCreateSchema.parse(body);
 
-    const { upsertCustomer, insertOrder, getCustomerById } = require("@/lib/db");
-    const { computeRfmScores } = require("@/lib/rfm");
+
 
     // 1. Create or upsert customer
     const customer = await upsertCustomer({
@@ -110,10 +110,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       data: updatedCustomer || customer,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[POST CUSTOMER API ERROR]", error);
+    const err = error as Error;
     return NextResponse.json(
-      { error: error.message || "Failed to create customer" },
+      { error: err.message || "Failed to create customer" },
       { status: 400 }
     );
   }

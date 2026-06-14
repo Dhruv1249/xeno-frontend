@@ -11,7 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getCustomerById, getCustomerOrders, getCustomerCommunications } from "@/lib/db";
+import { getCustomerById, getCustomerOrders, getCustomerCommunications, insertOrder } from "@/lib/db";
+import { computeRfmScores } from "@/lib/rfm";
 import { z } from "zod";
 
 const ParamsSchema = z.object({
@@ -102,8 +103,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
-    const { insertOrder } = require("@/lib/db");
-    const { computeRfmScores } = require("@/lib/rfm");
+
 
     // 1. Insert manual order
     await insertOrder({
@@ -133,10 +133,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({
       data: profile,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("[POST CUSTOMER ORDER API ERROR]", error);
+    const err = error as Error;
     return NextResponse.json(
-      { error: error.message || "Failed to add purchase order" },
+      { error: err.message || "Failed to add purchase order" },
       { status: 400 }
     );
   }

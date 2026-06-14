@@ -187,7 +187,7 @@ export async function getPreSendRecommendation(
   customerCount: number
 ): Promise<AIRecommendation> {
   const fallback: AIRecommendation = {
-    recommended_channel: channel as any,
+    recommended_channel: channel as "whatsapp" | "sms" | "email" | "rcs",
     recommended_time: "Wednesday 6–8 PM",
     reasoning: `Recommended sending over ${channel} based on retail heuristics. High engagement times for similar segments average weekday evenings.`,
     risk: "Medium risk of message fatigue. Ensure messaging contains a clear value proposition.",
