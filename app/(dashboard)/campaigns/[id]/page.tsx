@@ -171,6 +171,8 @@ export default function CampaignAnalyticsPage() {
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
   const [replayedEvents, setReplayedEvents] = useState<FeedEvent[]>([]);
 
+
+
   // AI summary states
   const [aiSummary, setAiSummary] = useState("");
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -201,6 +203,21 @@ export default function CampaignAnalyticsPage() {
   useEffect(() => {
     campaignRef.current = campaign;
   }, [campaign]);
+
+  // Automatically trigger replay if ?autoplay=true query parameter is present (used for headless testing)
+  useEffect(() => {
+    if (loading || !campaign || campaign.status !== "completed") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("autoplay") === "true") {
+      const timer = setTimeout(() => {
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          b.textContent?.includes("Show Dispatch Ticker")
+        );
+        if (btn) btn.click();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, campaign]);
 
 
 
@@ -319,6 +336,7 @@ export default function CampaignAnalyticsPage() {
             } else if (nextEvent.event_type === "failed") {
               updated.failed_count = (updated.failed_count || 0) + 1;
             }
+
             return updated;
           });
         }
