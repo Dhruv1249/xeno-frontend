@@ -75,6 +75,8 @@ interface AnalyticsCampaign {
   completed_at?: string;
   chart_data: ChartTimePoint[];
   events_log?: CampaignEventLogItem[];
+  attributed_revenue?: number;
+  attributed_orders?: number;
 }
 
 const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
@@ -89,6 +91,8 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 72,
     click_count: 48,
     failed_count: 2,
+    attributed_revenue: 24000,
+    attributed_orders: 12,
     message_template:
       "Hi {{customer_name}}! As one of our most valued shoppers, we've credited an exclusive ₹500 voucher to your account. Shop our new collection now: xeno.co/exclusive",
     ai_summary:
@@ -112,6 +116,8 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 58,
     click_count: 12,
     failed_count: 15,
+    attributed_revenue: 8500,
+    attributed_orders: 5,
     message_template:
       "Hey {{customer_name}}, we haven't seen you in a while! Use code COMEBACK20 for 20% off your next order. Only valid for 48 hours.",
     ai_summary:
@@ -135,6 +141,8 @@ const MOCK_CAMPAIGN_DETAILS: Record<string, AnalyticsCampaign> = {
     open_count: 4,
     click_count: 1,
     failed_count: 0,
+    attributed_revenue: 0,
+    attributed_orders: 0,
     message_template:
       "Hurry {{customer_name}}! 🚨 Monsoon Flash Sale is live. Get 40% off everything at Xeno.",
     ai_summary:
@@ -663,7 +671,7 @@ export default function CampaignAnalyticsPage() {
       )}
 
       {/* Top Stats Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 select-none">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 select-none">
         <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
           <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-text-muted">
             Sent
@@ -708,12 +716,26 @@ export default function CampaignAnalyticsPage() {
             {hoveredCard === "clicked" ? activeCamp.click_count : `${clickRate}%`}
           </div>
         </div>
-        <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center col-span-2 md:col-span-1">
+        <div className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center">
           <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-danger">
             Failed
           </div>
           <div className="font-mono text-2xl font-bold text-danger mt-1">
             {activeCamp.failed_count}
+          </div>
+        </div>
+        <div
+          className="bg-surface border border-text/5 p-4 rounded-lg shadow-extruded text-center cursor-pointer transition-all duration-200"
+          onMouseEnter={() => setHoveredCard("attribution")}
+          onMouseLeave={() => setHoveredCard(null)}
+        >
+          <div className="text-[10px] font-sans font-bold uppercase tracking-wider text-primary">
+            {hoveredCard === "attribution" ? "Attributed Orders" : "Attributed Revenue"}
+          </div>
+          <div className="font-mono text-xl font-bold text-primary mt-1">
+            {hoveredCard === "attribution"
+              ? `${activeCamp.attributed_orders || 0} orders`
+              : `₹${(activeCamp.attributed_revenue || 0).toLocaleString("en-IN")}`}
           </div>
         </div>
       </div>

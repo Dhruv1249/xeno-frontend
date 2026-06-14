@@ -78,6 +78,8 @@ export interface Campaign {
   ai_summary?: string | null;
   ai_recommendation?: AIRecommendation | null;
   created_at: string;
+  attributed_revenue?: number;
+  attributed_orders?: number;
 }
 
 export interface Communication {

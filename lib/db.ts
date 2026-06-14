@@ -33,6 +33,8 @@ interface CampaignDbRow {
   open_count: string;
   click_count: string;
   failed_count: string;
+  attributed_revenue?: string;
+  attributed_orders?: string;
 }
 
 // Setup connection pool. Fallback to local docker postgres connection if DATABASE_URL is not set.
@@ -433,7 +435,26 @@ export async function getCampaigns(): Promise<Campaign[]> {
            COUNT(CASE WHEN comm.status IN ('delivered', 'opened', 'clicked') THEN 1 END) as delivered_count,
            COUNT(CASE WHEN comm.status IN ('opened', 'clicked') THEN 1 END) as open_count,
            COUNT(CASE WHEN comm.status = 'clicked' THEN 1 END) as click_count,
-           COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count
+           COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count,
+           -- Order Attribution: Purchases within 72 hours of campaign message sent
+           COALESCE((
+             SELECT SUM(o.amount)
+             FROM communications co
+             JOIN orders o ON co.customer_id = o.customer_id
+             WHERE co.campaign_id = c.id
+               AND co.status IN ('sent', 'delivered', 'opened', 'clicked')
+               AND o.created_at >= co.sent_at
+               AND o.created_at <= co.sent_at + INTERVAL '72 hours'
+           ), 0) as attributed_revenue,
+           COALESCE((
+             SELECT COUNT(DISTINCT o.id)
+             FROM communications co
+             JOIN orders o ON co.customer_id = o.customer_id
+             WHERE co.campaign_id = c.id
+               AND co.status IN ('sent', 'delivered', 'opened', 'clicked')
+               AND o.created_at >= co.sent_at
+               AND o.created_at <= co.sent_at + INTERVAL '72 hours'
+           ), 0) as attributed_orders
     FROM campaigns c
     JOIN segments s ON c.segment_id = s.id
     LEFT JOIN communications comm ON c.id = comm.campaign_id
@@ -448,6 +469,8 @@ export async function getCampaigns(): Promise<Campaign[]> {
     open_count: Number(r.open_count),
     click_count: Number(r.click_count),
     failed_count: Number(r.failed_count),
+    attributed_revenue: Number(r.attributed_revenue || 0),
+    attributed_orders: Number(r.attributed_orders || 0),
   } as unknown as Campaign));
 }
 
@@ -463,7 +486,26 @@ export async function getCampaignById(id: string): Promise<Campaign | null> {
            COUNT(CASE WHEN comm.status IN ('delivered', 'opened', 'clicked') THEN 1 END) as delivered_count,
            COUNT(CASE WHEN comm.status IN ('opened', 'clicked') THEN 1 END) as open_count,
            COUNT(CASE WHEN comm.status = 'clicked' THEN 1 END) as click_count,
-           COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count
+           COUNT(CASE WHEN comm.status = 'failed' THEN 1 END) as failed_count,
+           -- Order Attribution: Purchases within 72 hours of campaign message sent
+           COALESCE((
+             SELECT SUM(o.amount)
+             FROM communications co
+             JOIN orders o ON co.customer_id = o.customer_id
+             WHERE co.campaign_id = c.id
+               AND co.status IN ('sent', 'delivered', 'opened', 'clicked')
+               AND o.created_at >= co.sent_at
+               AND o.created_at <= co.sent_at + INTERVAL '72 hours'
+           ), 0) as attributed_revenue,
+           COALESCE((
+             SELECT COUNT(DISTINCT o.id)
+             FROM communications co
+             JOIN orders o ON co.customer_id = o.customer_id
+             WHERE co.campaign_id = c.id
+               AND co.status IN ('sent', 'delivered', 'opened', 'clicked')
+               AND o.created_at >= co.sent_at
+               AND o.created_at <= co.sent_at + INTERVAL '72 hours'
+           ), 0) as attributed_orders
     FROM campaigns c
     JOIN segments s ON c.segment_id = s.id
     LEFT JOIN communications comm ON c.id = comm.campaign_id
@@ -479,6 +521,8 @@ export async function getCampaignById(id: string): Promise<Campaign | null> {
     open_count: Number(rows[0].open_count),
     click_count: Number(rows[0].click_count),
     failed_count: Number(rows[0].failed_count),
+    attributed_revenue: Number(rows[0].attributed_revenue || 0),
+    attributed_orders: Number(rows[0].attributed_orders || 0),
   } as unknown as Campaign;
 }
 
