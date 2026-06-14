@@ -286,6 +286,12 @@ export async function insertOrder(order: Partial<Order>): Promise<Order> {
   const queryText = `
     INSERT INTO orders (id, customer_id, amount, channel, items, created_at)
     VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5, COALESCE($6, now()))
+    ON CONFLICT (id) DO UPDATE SET
+      customer_id = EXCLUDED.customer_id,
+      amount = EXCLUDED.amount,
+      channel = EXCLUDED.channel,
+      items = EXCLUDED.items,
+      created_at = EXCLUDED.created_at
     RETURNING *
   `;
   const params = [
@@ -630,9 +636,9 @@ export async function getDashboardStats(): Promise<{
     SELECT
       COALESCE(
         (COUNT(CASE WHEN status IN ('opened', 'clicked') THEN 1 END)::float /
-        NULLIF(COUNT(CASE WHEN status != 'failed' THEN 1 END), 0)),
-        0
-      ) * 100 as rate
+        NULLIF(COUNT(CASE WHEN status != 'failed' THEN 1 END), 0)::float),
+        0.0::float
+      ) * 100.0::float as rate
     FROM communications
   `);
 
@@ -684,7 +690,7 @@ export async function getCustomerRfmBaseMetrics(): Promise<{
     SELECT c.id,
            COALESCE(EXTRACT(DAY FROM (now() - MAX(o.created_at)))::int, 999) as recency_days,
            COUNT(o.id)::int as frequency,
-           COALESCE(SUM(o.amount), 0)::float as monetary
+           COALESCE(SUM(o.amount)::float, 0.0::float) as monetary
     FROM customers c
     LEFT JOIN orders o ON c.id = o.customer_id
     GROUP BY c.id

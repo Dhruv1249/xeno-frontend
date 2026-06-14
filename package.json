@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "tsx lib/migrate.ts",
+    "db:seed": "tsx lib/seed.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
