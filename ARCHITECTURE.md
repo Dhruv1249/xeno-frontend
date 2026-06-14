@@ -6,66 +6,9 @@ This document describes the high-level system architecture, data flow, deploymen
 
 ## 1. System Architecture Diagram
 
-This simplified diagram maps the system components, deployment environments, and communication flows. It is structured to show a clean top-to-bottom layout:
+Below is the visual schematic of the system components, deployment environments, and communication pathways:
 
-```mermaid
-graph TD
-    %% Styling Nodes
-    classDef client fill:#f0f7f4,stroke:#3d7068,stroke-width:2px;
-    classDef crm fill:#fbfbfb,stroke:#2d3748,stroke-width:2px;
-    classDef db fill:#f0f4f8,stroke:#2b6cb0,stroke-width:2px;
-    classDef ai fill:#faf5ff,stroke:#6b46c1,stroke-width:2px;
-    classDef sim fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
-
-    subgraph Browser [Marketer Browser Interface]
-        UI[Next.js Web UI]:::client
-        Ticker[SSE Live Ticker]:::client
-    end
-
-    subgraph CRM [CRM Backend API - Deployed on Vercel]
-        Ingest[Ingest API]:::crm
-        Segment[Segment Engine]:::crm
-        Campaign[Campaign Composer]:::crm
-        Receipts[Receipts Webhook]:::crm
-        SSE[SSE Streamer]:::crm
-    end
-
-    subgraph Storage [CockroachDB Serverless]
-        DB[(Shoppers, Orders, & Events)]:::db
-    end
-
-    subgraph AI_Service [Gemini API]
-        Gemini[Gemini 3.1 Flash Lite]:::ai
-    end
-
-    subgraph Channel [Rust Channel Simulator - GCP Cloud Run]
-        Rust[Actix-web Endpoint]:::sim
-        Tokio[Tokio Callback Queue]:::sim
-    end
-
-    %% 1. Browser to CRM
-    UI -->|1. Upload CSVs| Ingest
-    UI -->|2. Build Segments| Segment
-    UI -->|3. Dispatch Campaigns| Campaign
-    Ticker <-->|8. Low-Overhead Event Stream| SSE
-
-    %% 2. CRM to Storage (Reads/Writes)
-    Ingest -->|Write| DB
-    Segment -->|Query| DB
-    Campaign -->|Queue comms| DB
-    Receipts -->|Update statuses| DB
-
-    %% 3. CRM to Gemini LLM
-    Segment <-->|NL to Segment Rules| Gemini
-    Campaign <-->|Pre-send Advice / Drafts| Gemini
-    Receipts <-->|Generate summary| Gemini
-
-    %% 4. Campaign Dispatch Callback Loop
-    Campaign -->|4. Trigger Campaign| Rust
-    Rust -->|5. Spawn async simulators| Tokio
-    Tokio -->|6. Callback Receipts| Receipts
-    Receipts -->|7. Push Events| SSE
-```
+![System Architecture Diagram](./public/system_architecture.png)
 
 ---
 
