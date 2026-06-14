@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { updateCommunicationStatus, insertEvent, getCommunicationWithCustomerName, checkAndUpdateCampaignCompletion } from "@/lib/db";
+import { updateCommunicationStatus, insertEvent, getCommunicationWithCustomerName, updateCampaignStatus, insertOrder } from "@/lib/db";
 import { sseEmitter } from "@/lib/sse";
 import { z } from "zod";
 
@@ -36,9 +36,9 @@ const uuidLike = z
   );
 
 const ReceiptSchema = z.object({
-  communication_id: uuidLike,
+  communication_id: uuidLike.optional().nullable(),
   campaign_id: uuidLike,
-  event_type: z.enum(["sent", "delivered", "failed", "opened", "clicked"]),
+  event_type: z.enum(["sent", "delivered", "failed", "opened", "clicked", "completed"]),
   occurred_at: z.string(),
   metadata: z.any().optional(),
 });
@@ -62,10 +62,30 @@ export async function POST(req: NextRequest) {
     const validated = ReceiptSchema.parse(body);
     const occurredAtDate = new Date(validated.occurred_at);
 
+    // If campaign completion callback from simulator
+    if (validated.event_type === "completed") {
+      try {
+        await updateCampaignStatus(
+          validated.campaign_id,
+          "completed",
+          undefined,
+          occurredAtDate
+        );
+      } catch (dbErr) {
+        console.error("[COMPLETION API ERROR]", dbErr);
+        throw dbErr;
+      }
+      return NextResponse.json({ success: true });
+    }
+
     // 3. Update communication status and insert event in parallel to halve DB latency.
     // If the communication_id doesn't exist (FK constraint) we return 200 anyway —
     // returning 400 causes Rust to retry 3 more times per event which floods the logs
     // for no benefit. A missing comm row is a no-op we can safely swallow.
+    if (!validated.communication_id) {
+      return NextResponse.json({ error: "Missing communication_id for event" }, { status: 400 });
+    }
+
     const failureReason = validated.metadata?.reason as string | undefined;
     try {
       await Promise.all([
@@ -102,6 +122,26 @@ export async function POST(req: NextRequest) {
           event_type: validated.event_type,
           campaign_id: validated.campaign_id,
         });
+
+        // Simulate a real-time purchase when customer clicks a link (50% probability)
+        if (validated.event_type === "clicked" && commDetails?.customer_id && Math.random() < 0.5) {
+          const amounts = [599, 999, 1299, 1999, 2499, 3499, 4999];
+          const randomAmount = amounts[Math.floor(Math.random() * amounts.length)];
+          const channels: ("online" | "store" | "app")[] = ["online", "app"];
+          const randomChannel = channels[Math.floor(Math.random() * channels.length)];
+
+          insertOrder({
+            customer_id: commDetails.customer_id,
+            amount: randomAmount,
+            channel: randomChannel,
+            items: [{ name: "Simulated Campaign Purchase", price: randomAmount, qty: 1 }],
+            created_at: new Date().toISOString()
+          }).then((order) => {
+            console.log(`[SIMULATED PURCHASE SUCCESS] Order ID: ${order.id}, Amount: ${order.amount} for customer: ${commDetails.customer_name}`);
+          }).catch(err => {
+            console.error("[SIMULATED PURCHASE ERROR]", err);
+          });
+        }
       })
       .catch(() => {
         // Best-effort — SSE missing a name is non-critical
@@ -113,12 +153,11 @@ export async function POST(req: NextRequest) {
         });
       });
 
-    // 5. Campaign completion check is fire-and-forget — it runs a full COUNT(*) across
-    //    all communications for the campaign, too expensive to block the callback ACK on.
-    //    The campaign status will eventually converge to 'completed'.
-    checkAndUpdateCampaignCompletion(validated.campaign_id).catch((err) => {
-      console.error("[CAMPAIGN COMPLETION CHECK ERROR]", err);
-    });
+    // 5. Campaign completion check has been disabled here because completion is now explicitly driven
+    // by the Rust simulator sending a final "completed" callback.
+    // checkAndUpdateCampaignCompletion(validated.campaign_id).catch((err) => {
+    //   console.error("[CAMPAIGN COMPLETION CHECK ERROR]", err);
+    // });
 
     return NextResponse.json({ success: true });
   } catch (error) {

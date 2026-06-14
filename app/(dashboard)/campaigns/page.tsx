@@ -36,8 +36,8 @@ function CampaignsSkeleton() {
             <div className="h-8 w-24 bg-text/10 rounded animate-pulse" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-2 items-center">
-            <div className="md:col-span-2 grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((j) => (
+            <div className="md:col-span-2 grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {[1, 2, 3, 4, 5, 6].map((j) => (
                 <div key={j} className="h-12 bg-text/10 rounded animate-pulse" />
               ))}
             </div>
@@ -165,7 +165,7 @@ export default function CampaignsListPage() {
                 {camp.status === "completed" || camp.status === "running" ? (
                   <>
                     {/* Stats columns */}
-                    <div className="md:col-span-2 grid grid-cols-4 gap-2 select-none">
+                    <div className="md:col-span-2 grid grid-cols-3 sm:grid-cols-6 gap-2 select-none">
                       <div className="text-center bg-surface border border-text/5 p-2 rounded shadow-recessed">
                         <div className="text-[9px] uppercase tracking-wider text-text-muted">Sent</div>
                         <div className="font-mono text-sm font-bold text-text mt-0.5">{camp.sent_count}</div>
@@ -185,6 +185,18 @@ export default function CampaignsListPage() {
                       <div className="text-center bg-surface border border-text/5 p-2 rounded shadow-recessed">
                         <div className="text-[9px] uppercase tracking-wider text-text-muted">Fail</div>
                         <div className="font-mono text-sm font-bold text-danger mt-0.5">{camp.failed_count}</div>
+                      </div>
+                      <div className="text-center bg-surface border border-text/5 p-2 rounded shadow-recessed">
+                        <div className="text-[9px] uppercase tracking-wider text-primary">Revenue</div>
+                        <div className="font-mono text-sm font-bold text-primary mt-0.5">
+                          ₹{(camp.attributed_revenue || 0).toLocaleString("en-IN")}
+                        </div>
+                      </div>
+                      <div className="text-center bg-surface border border-text/5 p-2 rounded shadow-recessed">
+                        <div className="text-[9px] uppercase tracking-wider text-primary">Orders</div>
+                        <div className="font-mono text-sm font-bold text-primary mt-0.5">
+                          {camp.attributed_orders || 0}
+                        </div>
                       </div>
                     </div>
 

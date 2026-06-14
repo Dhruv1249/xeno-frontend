@@ -799,9 +799,10 @@ export async function getCommunicationWithCustomerName(id: string): Promise<{
   communication_id: string;
   customer_name: string;
   campaign_id: string;
+  customer_id: string;
 } | null> {
   const queryText = `
-    SELECT c.id as communication_id, cust.name as customer_name, c.campaign_id
+    SELECT c.id as communication_id, cust.name as customer_name, c.campaign_id, c.customer_id
     FROM communications c
     JOIN customers cust ON c.customer_id = cust.id
     WHERE c.id = $1
@@ -810,6 +811,7 @@ export async function getCommunicationWithCustomerName(id: string): Promise<{
     communication_id: string;
     customer_name: string;
     campaign_id: string;
+    customer_id: string;
   }>(queryText, [id]);
   return rows[0] || null;
 }
@@ -818,23 +820,8 @@ export async function getCommunicationWithCustomerName(id: string): Promise<{
  * Checks if all communications for a campaign have reached completed/terminal states,
  * and updates campaign status to completed if true.
  */
-export async function checkAndUpdateCampaignCompletion(campaignId: string): Promise<void> {
-  // A campaign is complete when no communications remain in 'queued' status.
-  // Comms end their lifecycle at: sent (20%), delivered (42%), failed (10%),
-  // opened (21%), clicked (7%). Requiring delivered/failed/opened/clicked
-  // excluded the ~20% that stop at 'sent', so total never equalled completed.
-  const queryText = `
-    SELECT COUNT(*) as total,
-           COUNT(CASE WHEN status = 'queued' THEN 1 END) as still_queued
-    FROM communications
-    WHERE campaign_id = $1
-  `;
-  const rows = await executeQuery<{ total: string; still_queued: string }>(queryText, [campaignId]);
-  const total = Number(rows[0]?.total || 0);
-  const stillQueued = Number(rows[0]?.still_queued || 0);
-  if (total > 0 && stillQueued === 0) {
-    await updateCampaignStatus(campaignId, "completed", undefined, new Date());
-  }
+export async function checkAndUpdateCampaignCompletion(): Promise<void> {
+  // No-op: Completion is now driven explicitly by the Rust simulator sending a "completed" callback event type.
 }
 
 /**
