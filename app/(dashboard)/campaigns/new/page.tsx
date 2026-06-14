@@ -20,7 +20,6 @@ import { Badge } from "@/components/ui/badge";
 import { TemplateLibrary, CampaignTemplate } from "@/components/campaign/TemplateLibrary";
 import { ArrowLeft, Sparkles, AlertCircle, Info, Send, Calendar, ChevronRight, ChevronLeft, Users } from "lucide-react";
 import { AIRecommendation } from "@/types";
-import { MOCK_TARGET_SEGMENTS } from "@/lib/mockData";
 
 /**
  * Renders the Campaign Creation wizard interface.
@@ -38,8 +37,8 @@ function NewCampaignPageContent() {
   // Campaign Form State
   const [campaignName, setCampaignName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<CampaignTemplate | null>(null);
-  const [segments, setSegments] = useState<{ id: string; name: string; count: number }[]>(MOCK_TARGET_SEGMENTS);
-  const [targetSegmentId, setTargetSegmentId] = useState("s1");
+  const [segments, setSegments] = useState<{ id: string; name: string; count: number }[]>([]);
+  const [targetSegmentId, setTargetSegmentId] = useState("");
   const [targetMode, setTargetMode] = useState<"all" | "segment">("all");
   const [selectedChannel, setSelectedChannel] = useState<"whatsapp" | "sms" | "email" | "rcs">("whatsapp");
   const [messageText, setMessageText] = useState("");
@@ -104,7 +103,7 @@ function NewCampaignPageContent() {
         const res = await fetch("/api/segments");
         if (res.ok) {
           const json = await res.json();
-          if (json.data && json.data.length > 0) {
+          if (json.data) {
             let fetchedSegments = json.data;
 
             // Check if "All Shoppers" is missing
@@ -510,13 +509,17 @@ function NewCampaignPageContent() {
                       onChange={(e) => setTargetSegmentId(e.target.value)}
                       className="flex-1 bg-surface border border-text/10 rounded-lg p-2.5 text-xs font-mono tracking-wider shadow-extruded cursor-pointer outline-none focus:border-primary"
                     >
-                      {segments
-                        .filter((s) => s.name !== "All Shoppers")
-                        .map((seg) => (
-                          <option key={seg.id} value={seg.id}>
-                            {seg.name.toUpperCase()} ({seg.count} SHOPPERS)
-                          </option>
-                        ))}
+                      {segments.filter((s) => s.name !== "All Shoppers").length === 0 ? (
+                        <option disabled value="">NO CUSTOM SEGMENTS CREATED</option>
+                      ) : (
+                        segments
+                          .filter((s) => s.name !== "All Shoppers")
+                          .map((seg) => (
+                            <option key={seg.id} value={seg.id}>
+                              {seg.name.toUpperCase()} ({seg.count} SHOPPERS)
+                            </option>
+                          ))
+                      )}
                     </select>
                     <Button
                       type="button"

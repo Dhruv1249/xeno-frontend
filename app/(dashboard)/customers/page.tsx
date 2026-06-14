@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, MapPin, Eye, RefreshCw, Plus, Upload, Filter, ChevronDown } from "lucide-react";
 import { Customer, Segment } from "@/types";
-import { MOCK_CUSTOMERS } from "@/lib/mockData";
 import {
   ScatterChart,
   Scatter,
@@ -101,7 +100,7 @@ export default function CustomersPage() {
   // Table page — only the current 50 rows
   const [customers, setCustomers] = useState<Customer[]>([]);
   // Separate 500-record sample used only for charts
-  const [chartCustomers, setChartCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  const [chartCustomers, setChartCustomers] = useState<Customer[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -209,7 +208,7 @@ export default function CustomersPage() {
         const res = await fetch("/api/customers?limit=500");
         if (res.ok) {
           const json = await res.json();
-          if (json.data?.length) setChartCustomers(json.data);
+          if (json.data) setChartCustomers(json.data);
         }
       } catch (err) {
         console.error("Chart sample fetch failed", err);
