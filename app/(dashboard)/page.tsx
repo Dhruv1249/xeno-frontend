@@ -163,7 +163,7 @@ export default function DashboardPage() {
             </CardTitle>
           </div>
           <Badge variant="primary" type="raised" className="text-[9px]">
-            Gemini 1.5 Flash
+            Gemini 3.1 Flash Lite
           </Badge>
         </CardHeader>
         <CardContent className="pt-4">

@@ -631,8 +631,14 @@ export async function insertEvent(
   occurredAt: Date,
   metadata: unknown
 ): Promise<void> {
+  // Use WHERE NOT EXISTS to prevent duplicate callbacks (e.g. from network retries under load)
+  // from inserting duplicate rows for the same communication event transition.
   await executeQuery(
-    "INSERT INTO events (communication_id, event_type, occurred_at, metadata) VALUES ($1, $2, $3, $4)",
+    `INSERT INTO events (communication_id, event_type, occurred_at, metadata)
+     SELECT $1, $2, $3, $4
+     WHERE NOT EXISTS (
+       SELECT 1 FROM events WHERE communication_id = $1 AND event_type = $2
+     )`,
     [commId, eventType, occurredAt, JSON.stringify(metadata)]
   );
 }
@@ -795,12 +801,18 @@ export async function getCampaignChartData(campaignId: string): Promise<{
   event_type: string;
   occurred_at: Date;
 }[]> {
+  // Deduplicate using DISTINCT ON so retries or duplicate event rows don't skew chart timelines
   const queryText = `
-    SELECT e.event_type, e.occurred_at
-    FROM events e
-    JOIN communications c ON e.communication_id = c.id
-    WHERE c.campaign_id = $1
-    ORDER BY e.occurred_at ASC
+    WITH unique_events AS (
+      SELECT DISTINCT ON (e.communication_id, e.event_type) e.event_type, e.occurred_at
+      FROM events e
+      JOIN communications c ON e.communication_id = c.id
+      WHERE c.campaign_id = $1
+      ORDER BY e.communication_id, e.event_type, e.occurred_at ASC
+    )
+    SELECT event_type, occurred_at
+    FROM unique_events
+    ORDER BY occurred_at ASC
   `;
   return executeQuery<{ event_type: string; occurred_at: Date }>(queryText, [campaignId]);
 }
@@ -816,13 +828,19 @@ export async function getCampaignEvents(campaignId: string): Promise<{
   event_type: string;
   occurred_at: Date;
 }[]> {
+  // Deduplicate using DISTINCT ON so replay/playback loop only processes one event of each type per communication
   const queryText = `
-    SELECT e.id::text, cust.name as customer_name, c.channel, e.event_type, e.occurred_at
-    FROM events e
-    JOIN communications c ON e.communication_id = c.id
-    JOIN customers cust ON c.customer_id = cust.id
-    WHERE c.campaign_id = $1
-    ORDER BY e.occurred_at DESC
+    WITH unique_events AS (
+      SELECT DISTINCT ON (e.communication_id, e.event_type) e.id::text as id, cust.name as customer_name, c.channel, e.event_type, e.occurred_at
+      FROM events e
+      JOIN communications c ON e.communication_id = c.id
+      JOIN customers cust ON c.customer_id = cust.id
+      WHERE c.campaign_id = $1
+      ORDER BY e.communication_id, e.event_type, e.occurred_at ASC
+    )
+    SELECT id, customer_name, channel, event_type, occurred_at
+    FROM unique_events
+    ORDER BY occurred_at DESC
     LIMIT 1000
   `;
   return executeQuery<{
